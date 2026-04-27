@@ -87,6 +87,7 @@ namespace TideboundWar
             if (unit != null)
             {
                 unit.Faction = Faction.Enemy;
+                unit.WanderRoot = this.transform;  // 岛屿实例作为坐标根，漫步目标存本地坐标跟随岛移动
                 unit.BeginEntering(anchorPos, EnemyStandArea);
             }
             else
@@ -96,36 +97,43 @@ namespace TideboundWar
 
             _spawnedEnemies.Add(orcObj.transform);
 
-            bool isChildOfCurrentIsland = orcObj.transform.IsChildOf(transform);
-            Debug.Log($"[EnemySpawner] 生成 Orc，parent = {(orcObj.transform.parent != null ? orcObj.transform.parent.name : "null")}，isChildOfCurrentIsland = {isChildOfCurrentIsland}");
+            // ── 生成验证日志 ──
+            bool isChildOfIsland = orcObj.transform.IsChildOf(transform);
+            bool spawnAreaBelongsToIsland = EnemyStandArea != null && EnemyStandArea.transform.IsChildOf(transform);
+            Debug.Log($"[EnemySpawner] 生成 Orc worldPos = {orcObj.transform.position}");
+            Debug.Log($"[EnemySpawner] Orc localPos = {orcObj.transform.localPosition}");
             Debug.Log($"[EnemySpawner] Orc parent = {(orcObj.transform.parent != null ? orcObj.transform.parent.name : "null")}");
-            Debug.Log($"[EnemySpawner] Orc 是否属于当前岛屿 = {isChildOfCurrentIsland}");
-            if (!isChildOfCurrentIsland)
+            Debug.Log($"[EnemySpawner] SpawnArea = {(EnemyStandArea != null ? EnemyStandArea.name : "null")}");
+            Debug.Log($"[EnemySpawner] SpawnArea 是否属于当前岛屿 = {spawnAreaBelongsToIsland}");
+            if (!isChildOfIsland)
                 Debug.LogError("[EnemySpawner] Orc 未挂到当前岛屿实例下，岛屿移动时敌人不会跟随！");
         }
 
         private bool EnsureEnemyContainer()
         {
-            Debug.Log($"[EnemySpawner] 当前岛屿 root = {transform.name}");
+            Debug.Log($"[EnemySpawner] 当前岛屿实例 = {transform.name}");
 
             if (EnemyContainer == null)
             {
                 Transform found = transform.Find("Runtime/EnemyContainer");
                 if (found != null)
+                {
                     EnemyContainer = found;
+                    Debug.Log($"[EnemySpawner] 自动查找 EnemyContainer = {found.name}");
+                }
             }
 
             Debug.Log($"[EnemySpawner] EnemyContainer = {(EnemyContainer != null ? EnemyContainer.name : "null")}");
 
             if (EnemyContainer == null)
             {
-                Debug.LogError("[EnemySpawner] EnemyContainer 为空，无法生成敌人");
+                Debug.LogError("[EnemySpawner] EnemyContainer 为空，无法生成敌人。请在 Inspector 拖入或确保岛屿有 Runtime/EnemyContainer 子物体");
                 return false;
             }
 
             if (!EnemyContainer.IsChildOf(transform))
             {
-                Debug.LogError("[EnemySpawner] EnemyContainer 不是当前岛屿实例的子物体，敌人不会跟随岛屿移动");
+                Debug.LogError($"[EnemySpawner] EnemyContainer({EnemyContainer.name}) 不是当前岛屿实例({transform.name})的子物体，敌人不会跟随岛屿移动！");
                 return false;
             }
 

@@ -27,8 +27,10 @@ namespace TideboundWar
         [Header("离开参数")]
         [Tooltip("岛屿离开点（画面外下方）")] public Transform IslandExitPoint;
         [Tooltip("离开移动速度")] public float ExitMoveSpeed = 2f;
-        [Tooltip("是否启用 EncounterSequence 回调（单岛止损模式建议关闭）")]
-        public bool EnableSequenceCallbacks = false;
+
+        [Header("单岛模式")]
+        [Tooltip("单岛模式下使用的岛屿预制体（多岛模式请用 EncounterSequenceManager）")]
+        public GameObject IslandPrefab;
 
         private GameObject _currentIsland;
         private bool _isMoving;
@@ -80,6 +82,20 @@ namespace TideboundWar
             _encounterActive = true;
             _leaveSequenceStarted = false;
             SpawnIsland(islandPrefab);
+        }
+
+        /// <summary>
+        /// 单岛模式入口：使用 Inspector 配置的 IslandPrefab。
+        /// 由 VoyageProgressManager 直接调用。
+        /// </summary>
+        public void BeginEncounter()
+        {
+            if (IslandPrefab == null)
+            {
+                Debug.LogError("[IslandEncounterController] IslandPrefab 未设置，单岛模式无法开始");
+                return;
+            }
+            BeginEncounter(IslandPrefab);
         }
 
         private void Update()
@@ -152,11 +168,9 @@ namespace TideboundWar
                     _encounterActive = false;
                     _leaveSequenceStarted = false;
 
-                    if (VoyageProgressMgr != null)
-                        VoyageProgressMgr.ResetVoyage();
 
-                    if (EnableSequenceCallbacks)
-                        OnIslandEncounterFinished?.Invoke();
+
+                    OnIslandEncounterFinished?.Invoke();
                     return;
                 }
 

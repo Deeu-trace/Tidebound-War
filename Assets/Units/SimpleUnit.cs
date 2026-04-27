@@ -105,6 +105,9 @@ namespace TideboundWar
         [Tooltip("到达站位后停顿时长")] public float IdleReadyDuration = 0.5f;
         [Tooltip("漫步目标采样最大尝试次数")] public int WanderMaxAttempts = 20;
         [Tooltip("漫步时与其他友军最小距离")] public float WanderMinSeparation = 0.5f;
+        [Tooltip("漫步/站位的坐标根节点（岛屿实例的Transform），设后所有本地坐标以此为准，岛屿移动时自动跟随")]
+        public Transform WanderRoot;
+        [Tooltip("是否输出漫步调试日志")] public bool DebugWander;
 
         // ────────────── 公开状态 ──────────────
 
@@ -131,7 +134,9 @@ namespace TideboundWar
         private MaterialPropertyBlock _propBlock;
 
         // 状态机内部
-        private Vector3 _wanderTargetLocal;   // 漫步目标点（SpawnArea 局部坐标，岛屿移动时自动跟随）
+        private Vector3 _wanderTargetLocal;   // 漫步目标点（WanderRoot 或 SpawnArea 局部坐标，岛屿移动时自动跟随）
+        private Vector3 _anchorLocal;          // 站位本地坐标（WanderRoot 空间，岛屿移动时自动跟随）
+        private bool _anchorLocalSet;           // 是否已设置本地站位
         private float _stateTimer;              // 状态计时器
         private bool _wanderTargetSet;          // 是否已设置漫步目标
         private bool _suppressArrivedEvent;     // 跳过 OnArrivedAtAnchor 事件（ExitCombat 用）
@@ -445,14 +450,16 @@ namespace TideboundWar
                 return;
             }
 
-            Vector3 toAnchor = AnchorPosition - transform.position;
+            // 使用本地坐标转换：岛屿移动时站位目标跟着走
+            Vector3 anchorWorld = GetAnchorWorldPosition();
+            Vector3 toAnchor = anchorWorld - transform.position;
             toAnchor.z = 0f; // 忽略 Z 差异
 
             float dist = toAnchor.magnitude;
             if (dist <= ArrivalThreshold)
             {
                 // 到达站位
-                transform.position = AnchorPosition;
+                transform.position = anchorWorld;
                 SetWalking(false);
                 TransitionTo(UnitState.IdleReady);
                 return;
@@ -519,10 +526,34 @@ namespace TideboundWar
         /// <summary>把局部坐标漫步目标转成当前世界坐标</summary>
         private Vector3 GetWanderTargetWorld()
         {
+            if (WanderRoot != null)
+                return WanderRoot.TransformPoint(_wanderTargetLocal);
             if (SpawnArea != null)
                 return SpawnArea.transform.TransformPoint(_wanderTargetLocal);
-            // 没有 SpawnArea 时退回直接使用（不应发生，但防错）
+            // 没有 WanderRoot 和 SpawnArea 时退回直接使用（不应发生，但防错）
             return _wanderTargetLocal;
+        }
+
+        /// <summary>获取当前站位的世界坐标（WanderRoot 移动时自动更新）</summary>
+        private Vector3 GetAnchorWorldPosition()
+        {
+            if (WanderRoot != null && _anchorLocalSet)
+                return WanderRoot.TransformPoint(_anchorLocal);
+            return AnchorPosition;
+        }
+
+        /// <summary>将 AnchorPosition 转换为 WanderRoot 本地坐标存储</summary>
+        private void UpdateAnchorLocal()
+        {
+            if (WanderRoot != null)
+            {
+                _anchorLocal = WanderRoot.InverseTransformPoint(AnchorPosition);
+                _anchorLocalSet = true;
+            }
+            else
+            {
+                _anchorLocalSet = false;
+            }
         }
 
         // ── Landing：沿路点移动（下船 → 登岛 → 集结） ──
@@ -577,6 +608,7 @@ namespace TideboundWar
             AnchorPosition = _gatherAnchor;
             HasAnchor = true;
             SpawnArea = _gatherArea;
+            UpdateAnchorLocal();
             _combatPendingAfterLanding = false;
             TransitionTo(UnitState.IdleReady);
         }
@@ -592,6 +624,7 @@ namespace TideboundWar
                 SpawnArea = _gatherArea;
             AnchorPosition = transform.position;
             HasAnchor = true;
+            UpdateAnchorLocal();
 
             // 清除登陆数据
             _landingWaypoints = null;
@@ -655,8 +688,8 @@ namespace TideboundWar
         ///   3. 目标点与其他 SimpleUnit 保持 WanderMinSeparation
         /// 如果连续 WanderMaxAttempts 次找不到合法点，原地待命。
         ///
-        /// 采样用世界坐标验证，通过后转成 SpawnArea 局部坐标保存。
-        /// 这样岛屿移动时，局部坐标目标跟着 SpawnArea 走，不会过期。
+        /// 采样用世界坐标验证，通过后转成 WanderRoot（优先）或 SpawnArea 局部坐标保存。
+        /// 这样岛屿移动时，局部坐标目标跟着根节点走，不会过期。
         /// </summary>
         private void PickNewWanderTarget()
         {
@@ -682,13 +715,24 @@ namespace TideboundWar
                 if (IsTooCloseToOtherUnit(candidateWorld))
                     continue;
 
-                // 全部通过，转成 SpawnArea 局部坐标保存
-                if (SpawnArea != null)
+                // 全部通过，转成本地坐标保存（优先 WanderRoot，退回 SpawnArea）
+                if (WanderRoot != null)
+                    _wanderTargetLocal = WanderRoot.InverseTransformPoint(candidateWorld);
+                else if (SpawnArea != null)
                     _wanderTargetLocal = SpawnArea.transform.InverseTransformPoint(candidateWorld);
                 else
                     _wanderTargetLocal = candidateWorld; // 退路
 
                 _wanderTargetSet = true;
+
+                // ── 调试日志 ──
+                if (DebugWander)
+                {
+                    Debug.Log($"[SimpleUnit] {gameObject.name} 新漫步目标 world = {candidateWorld}");
+                    Debug.Log($"[SimpleUnit] {gameObject.name} 新漫步目标 local = {_wanderTargetLocal}");
+                    Debug.Log($"[SimpleUnit] {gameObject.name} 当前 WanderRoot = {(WanderRoot != null ? WanderRoot.name : "null")}");
+                }
+
                 return;
             }
 
@@ -771,6 +815,7 @@ namespace TideboundWar
             AnchorPosition = anchorPos;
             HasAnchor = true;
             SpawnArea = spawnArea;
+            UpdateAnchorLocal();
             TransitionTo(UnitState.Entering);
         }
 
@@ -851,6 +896,7 @@ namespace TideboundWar
 
                 AnchorPosition = transform.position;
                 HasAnchor = true;
+                UpdateAnchorLocal();
 
                 _landingWaypoints = null;
                 _landingWaypointIndex = 0;

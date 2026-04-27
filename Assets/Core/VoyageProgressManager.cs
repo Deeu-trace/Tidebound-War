@@ -117,14 +117,14 @@ namespace TideboundWar
                 }
             }
 
-            // 2. 单岛模式：直接触发 Island01（绕开 EncounterSequenceManager）
-            if (IslandEncounterCtrl != null && Island01Prefab != null)
+            // 2. 单岛模式：直接触发岛屿遭遇（绕开 EncounterSequenceManager）
+            if (IslandEncounterCtrl != null)
             {
-                IslandEncounterCtrl.BeginEncounter(Island01Prefab);
+                IslandEncounterCtrl.BeginEncounter();
             }
             else
             {
-                Debug.LogError("[Voyage] 单岛模式触发失败：请在 Inspector 设置 IslandEncounterCtrl 和 Island01Prefab");
+                Debug.LogError("[Voyage] 单岛模式触发失败：请在 Inspector 设置 IslandEncounterCtrl");
             }
         }
 
