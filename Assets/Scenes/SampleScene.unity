@@ -1262,7 +1262,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   MaxProgress: 10
   CurrentProgress: 0
-  ProgressPerMatch: 2
+  ProgressPerClearedPiece: 1
   IslandEncounterCtrl: {fileID: 1451280614}
   PhaseMgr: {fileID: 1075291600}
   ProgressText: {fileID: 1701241138}
@@ -11854,7 +11854,6 @@ MonoBehaviour:
   BoardingPoint: {fileID: 134398443}
   AllySpawner: {fileID: 879574089}
   BattleManager: {fileID: 1619034264}
-  MoveSpeed: 2
   StartInterval: 0.2
   MinGatherDistance: 0.5
   MaxTryCount: 50
@@ -12107,7 +12106,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aed5661bb79c647438740472b460c9d1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  IslandPrefab: {fileID: 4210761081844712046, guid: 32e8e3fb4e83bd34f9072bcc8486e84f, type: 3}
   IslandContainer: {fileID: 1253402373}
   IslandSpawnPoint: {fileID: 1080177935}
   IslandDockPoint: {fileID: 1388164194}
@@ -12115,10 +12113,13 @@ MonoBehaviour:
   LandingController: {fileID: 1368238475}
   ReturnToShipCtrl: {fileID: 1880043145}
   BoardAnimCtrl: {fileID: 1446329809}
+  VoyageProgressMgr: {fileID: 0}
   MoveSpeed: 4.32
   ArrivalThreshold: 0.05
   IslandExitPoint: {fileID: 688059002}
   ExitMoveSpeed: 2
+  BoardRetractTimeout: 5
+  IslandPrefab: {fileID: 4210761081844712046, guid: 32e8e3fb4e83bd34f9072bcc8486e84f, type: 3}
 --- !u!1 &1566038221
 GameObject:
   m_ObjectHideFlags: 0
@@ -12726,7 +12727,6 @@ MonoBehaviour:
   ShipGatherArea: {fileID: 744240073}
   BattleManager: {fileID: 1619034264}
   AllyContainer: {fileID: 620852665}
-  MoveSpeed: 2
   RetractInterval: 0.05
   BoardShipInterval: 0.2
   MinGatherDistance: 0.5
@@ -12735,6 +12735,8 @@ MonoBehaviour:
   RadiusStep: 0.5
   AnglesPerRing: 12
   MaxRadius: 5
+  EnableReturnDebugLog: 0
+  DebugLogInterval: 1
 --- !u!1 &1914557472
 GameObject:
   m_ObjectHideFlags: 0
