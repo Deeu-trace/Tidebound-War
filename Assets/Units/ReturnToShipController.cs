@@ -14,6 +14,11 @@ namespace TideboundWar
     ///   - 不需要等所有人到齐，先到先上船
     ///   - 上船路线：等待点 → LandingPoint → BoardingPoint → ShipGatherArea 随机点
     ///
+    /// 关键设计：
+    ///   - 使用 SimpleUnit.BeginMoveAlongPath + 直接回调，不依赖 OnArrivedAtAnchor 事件
+    ///   - 撤退完成 → OnRetractArrived → 加入上船队列
+    ///   - 上船完成 → OnBoardArrived → returnedCount++ → 全部完成则 FireAllReturned
+    ///
     /// 挂载位置：GameManager 或 Systems 空物体上
     /// </summary>
     public class ReturnToShipController : MonoBehaviour
@@ -49,6 +54,10 @@ namespace TideboundWar
         [Tooltip("每圈半径增量")] public float RadiusStep = 0.5f;
         [Tooltip("每圈角度采样数")] public int AnglesPerRing = 12;
         [Tooltip("最大搜索半径")] public float MaxRadius = 5f;
+
+        [Header("调试")]
+        [Tooltip("启用回船调试日志（详细状态输出）")] public bool EnableReturnDebugLog = false;
+        [Tooltip("调试日志输出间隔（秒）")] public float DebugLogInterval = 1f;
 
         // ── 内部数据 ──
 
@@ -104,6 +113,9 @@ namespace TideboundWar
         private Transform _cachedLandingPoint;
         private PolygonCollider2D _cachedWalkableArea;
 
+        // ── 调试计时 ──
+        private float _debugLogTimer;
+
         // ── 生命周期 ──
 
         private void Awake()
@@ -137,8 +149,22 @@ namespace TideboundWar
             // ── 队列/回调可靠性恢复 ──
             RecoverQueueState();
 
+            // ── 安全兜底：检查卡在上船中的单位 ──
+            CheckStuckBoardingUnits();
+
             // ── 检查是否全部完成 ──
             CheckAllReturned();
+
+            // ── 调试日志（间隔输出）──
+            if (EnableReturnDebugLog)
+            {
+                _debugLogTimer -= Time.deltaTime;
+                if (_debugLogTimer <= 0f)
+                {
+                    DebugReturnState();
+                    _debugLogTimer = DebugLogInterval;
+                }
+            }
         }
 
         // ── 战斗结束回调 ──
@@ -162,7 +188,9 @@ namespace TideboundWar
             foreach (var unit in BattleManager.AliveAllies)
             {
                 if (unit == null) continue;
-                if (unit.State == UnitState.Dead) continue;
+                if (unit.IsDead) continue;                    // 逻辑死亡
+                if (unit.State == UnitState.Dead) continue;   // 状态机死亡
+                if (unit.Faction != Faction.Ally) continue;   // 只收友军
                 survivors.Add(unit);
             }
 
@@ -205,6 +233,7 @@ namespace TideboundWar
             _isProcessingBoardQueue = false;
             _cachedLandingPoint = landingPoint;
             _cachedWalkableArea = walkableArea;
+            _debugLogTimer = 0f;
 
             // ── 记录本次需要回船的士兵 ──
             foreach (var unit in survivors)
@@ -244,7 +273,6 @@ namespace TideboundWar
             _isActive = true;
 
             Debug.Log($"[ReturnToShip] 开始回船，共 {survivors.Count} 名士兵");
-            DebugReturnState();
         }
 
         // ── 撤退释放 ──
@@ -259,31 +287,29 @@ namespace TideboundWar
             ReturnInfo info = _retractQueue.Dequeue();
 
             // 跳过已死亡/已处理的单位
-            if (info.Unit == null || info.Unit.State == UnitState.Dead || _processedUnits.Contains(info.Unit))
+            if (info.Unit == null || info.Unit.IsDead || info.Unit.State == UnitState.Dead || _processedUnits.Contains(info.Unit))
             {
                 MarkProcessed(info.Unit);
                 Debug.Log("[ReturnToShip] 撤退释放时单位已死亡/失效，跳过。");
                 return;
             }
 
-            info.Unit.OnArrivedAtAnchor -= OnRetractArrived;
-            info.Unit.OnArrivedAtAnchor -= OnBoardArrived;
-            info.Unit.BeginLanding(info.Waypoints, info.ShipAnchor, info.ShipArea);
-            info.Unit.OnArrivedAtAnchor += OnRetractArrived;
+            // 使用 BeginMoveAlongPath + 直接回调，不依赖 OnArrivedAtAnchor
+            info.Unit.BeginMoveAlongPath(info.Waypoints, OnRetractArrived, info.ShipAnchor, info.ShipArea);
 
             _retractTimer = RetractInterval;
         }
 
         /// <summary>
         /// 士兵到达撤退等待点 → 立即加入上船队列。
+        /// 由 SimpleUnit.BeginMoveAlongPath 的路径完成回调直接调用。
         /// </summary>
         private void OnRetractArrived(SimpleUnit unit)
         {
             if (unit == null) return;
-            unit.OnArrivedAtAnchor -= OnRetractArrived;
 
             // 跳过已死亡/已处理的
-            if (unit.State == UnitState.Dead || _processedUnits.Contains(unit))
+            if (unit.IsDead || unit.State == UnitState.Dead || _processedUnits.Contains(unit))
             {
                 MarkProcessed(unit);
                 Debug.Log($"[ReturnToShip] {unit.gameObject.name} 到达等待点时已死亡，标记处理");
@@ -306,7 +332,7 @@ namespace TideboundWar
 
         private void EnqueueForBoarding(SimpleUnit unit)
         {
-            if (unit == null || unit.State == UnitState.Dead || _processedUnits.Contains(unit) || _returnedUnits.Contains(unit))
+            if (unit == null || unit.IsDead || unit.State == UnitState.Dead || _processedUnits.Contains(unit) || _returnedUnits.Contains(unit))
                 return;
             if (_queuedUnits.Contains(unit) || _boardingUnits.Contains(unit))
                 return;
@@ -337,7 +363,6 @@ namespace TideboundWar
             _assignedShipPoints.Add(shipPoint);
 
             Debug.Log($"[ReturnToShip] {unit.gameObject.name} 到达撤退等待点，加入上船队列。当前队列数量 = {_boardQueue.Count}");
-            DebugReturnState();
 
             // 如果队列处理已停止，自动重启
             if (!_isProcessingBoardQueue && _boardQueue.Count > 0)
@@ -363,7 +388,7 @@ namespace TideboundWar
             while (_boardQueue.Count > 0)
             {
                 ReturnInfo peek = _boardQueue.Peek();
-                if (peek.Unit == null || peek.Unit.State == UnitState.Dead || _processedUnits.Contains(peek.Unit))
+                if (peek.Unit == null || peek.Unit.IsDead || peek.Unit.State == UnitState.Dead || _processedUnits.Contains(peek.Unit))
                 {
                     _boardQueue.Dequeue();
                     MarkProcessed(peek.Unit);
@@ -378,7 +403,7 @@ namespace TideboundWar
             if (_boardQueue.Count == 0)
             {
                 // 队列空了，检查是否还有未处理的士兵
-                if (_returnedCount < _returnCount)
+                if (_returnedCount < _returnCount && EnableReturnDebugLog)
                 {
                     Debug.LogWarning("[ReturnToShip] 队列已空但仍有士兵未回船，请检查哪些士兵未完成流程。");
                     DebugReturnState();
@@ -393,7 +418,7 @@ namespace TideboundWar
             ReturnInfo info = _boardQueue.Dequeue();
 
             // 再次检查（双保险）
-            if (info.Unit == null || info.Unit.State == UnitState.Dead || _processedUnits.Contains(info.Unit))
+            if (info.Unit == null || info.Unit.IsDead || info.Unit.State == UnitState.Dead || _processedUnits.Contains(info.Unit))
             {
                 MarkProcessed(info.Unit);
                 Debug.Log("[ReturnToShip] 放行时单位已死亡/失效，跳过。");
@@ -407,30 +432,31 @@ namespace TideboundWar
                 return;
             }
 
+            // 状态集合更新：从"等待"→"上船中"
+            _waitingAtShoreUnits.Remove(info.Unit);
             _queuedUnits.Remove(info.Unit);
             _boardingUnits.Add(info.Unit);
-            info.Unit.OnArrivedAtAnchor -= OnRetractArrived;
-            info.Unit.OnArrivedAtAnchor -= OnBoardArrived;
-            info.Unit.BeginLanding(info.Waypoints, info.ShipAnchor, info.ShipArea);
-            info.Unit.OnArrivedAtAnchor += OnBoardArrived;
+
+            // 使用 BeginMoveAlongPath + 直接回调，不依赖 OnArrivedAtAnchor
+            info.Unit.BeginMoveAlongPath(info.Waypoints, OnBoardArrived, info.ShipAnchor, info.ShipArea);
 
             Debug.Log($"[ReturnToShip] 放行 {info.Unit.gameObject.name} 上船，剩余队列数量 = {_boardQueue.Count}");
-            DebugReturnState();
 
             _boardTimer = BoardShipInterval;
         }
 
         /// <summary>
         /// 士兵到达船上待命点。
+        /// 由 SimpleUnit.BeginMoveAlongPath 的路径完成回调直接调用。
         /// </summary>
         private void OnBoardArrived(SimpleUnit unit)
         {
             if (unit == null) return;
-            unit.OnArrivedAtAnchor -= OnBoardArrived;
+
             _boardingUnits.Remove(unit);
 
             // 跳过已死亡/已处理的
-            if (unit.State == UnitState.Dead || _processedUnits.Contains(unit))
+            if (unit.IsDead || unit.State == UnitState.Dead || _processedUnits.Contains(unit))
             {
                 MarkProcessed(unit);
                 Debug.Log($"[ReturnToShip] {unit.gameObject.name} 到达船上时已死亡，标记处理");
@@ -456,7 +482,6 @@ namespace TideboundWar
                 unit.transform.SetParent(AllyContainer, worldPositionStays: true);
 
             Debug.Log($"[ReturnToShip] {unit.gameObject.name} 已回到船上 {_returnedCount}/{_returnCount}");
-            DebugReturnState();
 
             if (_returnedCount >= _returnCount)
             {
@@ -469,11 +494,21 @@ namespace TideboundWar
 
         /// <summary>
         /// 标记士兵为已处理（死亡/失效/已回船），不再等待。
+        /// 同时调整 _returnCount：如果该士兵本应回船但不会完成了，减少期望数。
         /// </summary>
         private void MarkProcessed(SimpleUnit unit)
         {
             if (unit == null) return;
-            _processedUnits.Add(unit);
+
+            bool newlyAdded = _processedUnits.Add(unit);
+
+            // 如果这个士兵本来需要回船，但现在不会完成了（死亡/失效），减少期望数
+            // 已回船的不减（returnCount 应等于 returnedCount + 仍需等待的数量）
+            if (newlyAdded && !_returnedUnits.Contains(unit) && _returningUnits.Contains(unit))
+            {
+                _returnCount = Mathf.Max(_returnedCount, _returnCount - 1);
+            }
+
             _returningUnits.Remove(unit);
             _waitingAtShoreUnits.Remove(unit);
             _queuedUnits.Remove(unit);
@@ -487,36 +522,27 @@ namespace TideboundWar
         {
             if (_allReturnedFired) return;
 
-            // 所有需要回船的士兵都已处理完
-            bool allProcessed = true;
-            _iterationBuffer.Clear();
-            _iterationBuffer.AddRange(_returningUnits);
-            foreach (var unit in _iterationBuffer)
-            {
-                if (unit == null || unit.State == UnitState.Dead)
-                {
-                    MarkProcessed(unit);
-                    continue;
-                }
-                if (!_processedUnits.Contains(unit))
-                {
-                    allProcessed = false;
-                    break;
-                }
-            }
-
-            // 如果队列空但仍未完成，打印一次详细状态
-            if (_retractQueue.Count == 0 && _boardQueue.Count == 0 && !allProcessed)
-            {
-                Debug.LogWarning("[ReturnToShip] 队列已空但仍有士兵未回船，请检查哪些士兵未完成流程。");
-                DebugReturnState();
-            }
-
-            // 队列都空了 + 所有士兵都已处理
-            if (allProcessed && _retractQueue.Count == 0 && _boardQueue.Count == 0)
+            // 方式1：所有应回船的都已处理完（回船 + 死亡/失效）
+            if (_processedUnits.Count >= _returnCount && _retractQueue.Count == 0 && _boardQueue.Count == 0)
             {
                 _isActive = false;
                 FireAllReturned();
+                return;
+            }
+
+            // 方式2：没有仍在追踪的单位 + 所有队列空
+            if (_returningUnits.Count == 0 && _boardingUnits.Count == 0
+                && _retractQueue.Count == 0 && _boardQueue.Count == 0)
+            {
+                _isActive = false;
+                FireAllReturned();
+                return;
+            }
+
+            // 队列空但仍有未完成的，仅调试模式输出
+            if (EnableReturnDebugLog && _retractQueue.Count == 0 && _boardQueue.Count == 0 && _returningUnits.Count > 0)
+            {
+                Debug.LogWarning("[ReturnToShip] 队列已空但仍有士兵未回船，检查是否有卡住的单位");
             }
         }
 
@@ -525,18 +551,51 @@ namespace TideboundWar
             if (_allReturnedFired) return;
             _allReturnedFired = true;
 
-            Debug.Log("[ReturnToShip] 全部士兵已回船");
-            Debug.Log($"[ReturnToShip] 全部 {_returnedCount}/{Mathf.Max(_returnCount, _returnedCount)} 士兵已回船");
+            Debug.Log("[ReturnToShip] 全部士兵已回船，触发 OnAllAlliesReturned");
             OnAllAlliesReturned?.Invoke();
+        }
+
+        // ── 安全兜底：检查卡在上船中的单位 ──
+
+        /// <summary>
+        /// 如果 unit 在 boardingUnits 中，但已经在 ShipGatherArea 内，
+        /// 说明回调丢失，强制调 OnBoardArrived 补救。
+        /// 优先还是修正确的回调（BeginMoveAlongPath），此方法仅作兜底。
+        /// </summary>
+        private void CheckStuckBoardingUnits()
+        {
+            if (ShipGatherArea == null) return;
+
+            _iterationBuffer.Clear();
+            _iterationBuffer.AddRange(_boardingUnits);
+
+            foreach (var unit in _iterationBuffer)
+            {
+                if (unit == null || unit.IsDead || unit.State == UnitState.Dead)
+                {
+                    MarkProcessed(unit);
+                    continue;
+                }
+
+                // 单位已经在 ShipGatherArea 内 → 回调丢失，强制完成
+                if (ShipGatherArea.OverlapPoint(unit.transform.position))
+                {
+                    Debug.LogWarning($"[ReturnToShip] 兜底：{unit.gameObject.name} 已在船上但回调未触发，强制完成");
+                    OnBoardArrived(unit);
+                }
+            }
         }
 
         // ── 调试日志 ──
 
         /// <summary>
         /// 输出回船状态汇总，用于排查士兵卡住问题。
+        /// 只在 EnableReturnDebugLog = true 时按 DebugLogInterval 间隔输出。
         /// </summary>
         private void DebugReturnState()
         {
+            if (!EnableReturnDebugLog) return;
+
             Debug.Log(
                 $"[ReturnToShip Debug]\n" +
                 $"  returnCount = {_returnCount}\n" +
@@ -564,7 +623,7 @@ namespace TideboundWar
             _iterationBuffer.AddRange(_returningUnits);
             foreach (var unit in _iterationBuffer)
             {
-                if (unit == null || unit.State == UnitState.Dead)
+                if (unit == null || unit.IsDead || unit.State == UnitState.Dead)
                 {
                     MarkProcessed(unit);
                     continue;

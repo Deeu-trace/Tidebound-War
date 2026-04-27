@@ -58,7 +58,7 @@ namespace TideboundWar
         {
             if (_voyageComplete || _encounterStarting)
             {
-                Debug.Log("[Voyage] 航行已完成，锁定后续连锁进度");
+                Debug.Log("[Voyage] 航行已完成，忽略后续消除进度");
                 return;
             }
             if (count <= 0) return;

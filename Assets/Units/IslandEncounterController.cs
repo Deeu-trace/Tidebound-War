@@ -27,6 +27,8 @@ namespace TideboundWar
         [Header("离开参数")]
         [Tooltip("岛屿离开点（画面外下方）")] public Transform IslandExitPoint;
         [Tooltip("离开移动速度")] public float ExitMoveSpeed = 2f;
+        [Tooltip("木板收回动画超时时间（秒），超时后强制继续流程，防止卡死")]
+        public float BoardRetractTimeout = 5f;
 
         [Header("单岛模式")]
         [Tooltip("单岛模式下使用的岛屿预制体（多岛模式请用 EncounterSequenceManager）")]
@@ -38,13 +40,19 @@ namespace TideboundWar
         // 注：_waitingForCameraToReturn 已移除，改用事件订阅方式判断镜头是否回到船上
         private bool _encounterActive; // 当前是否有遭遇正在进行
         private bool _leaveSequenceStarted;
+        private float _boardRetractTimer;  // 木板收回超时计时器
 
         private void OnEnable()
         {
             if (ReturnToShipCtrl != null)
+            {
                 ReturnToShipCtrl.OnAllAlliesReturned += LeaveCurrentIsland;
+                Debug.Log("[IslandEncounter] 已订阅 ReturnToShipController.OnAllAlliesReturned");
+            }
             else
-                Debug.LogWarning("[IslandEncounter] ReturnToShipCtrl 未设置，无法接收全部回船事件");
+            {
+                Debug.LogWarning("[IslandEncounter] ReturnToShipCtrl 未设置，无法接收全部回船事件！");
+            }
         }
 
         private void OnDisable()
@@ -100,6 +108,17 @@ namespace TideboundWar
 
         private void Update()
         {
+            // ── 木板收回超时兜底 ──
+            if (_leaveSequenceStarted && !_isExiting && _boardRetractTimer > 0f)
+            {
+                _boardRetractTimer -= Time.deltaTime;
+                if (_boardRetractTimer <= 0f)
+                {
+                    Debug.LogWarning("[IslandEncounter] 木板收回动画超时，强制继续流程");
+                    OnBoardRetracted();
+                }
+            }
+
             // ── 停靠移动 ──
             if (_isMoving && _currentIsland != null)
             {
@@ -160,15 +179,21 @@ namespace TideboundWar
                 if (dist <= ArrivalThreshold)
                 {
                     string islandName = _currentIsland != null ? _currentIsland.name : "岛屿";
-                    Debug.Log("[IslandEncounter] 当前岛屿已销毁");
-                    Debug.Log($"[IslandEncounter] 当前岛屿已销毁：{islandName}");
                     Destroy(_currentIsland);
                     _currentIsland = null;
                     _isExiting = false;
                     _encounterActive = false;
                     _leaveSequenceStarted = false;
 
+                    Debug.Log($"[IslandEncounter] 当前岛屿已销毁：{islandName}");
 
+                    // 双保险：如果 EncounterSequenceManager 没有订阅或不存在，
+                    // 由 IslandEncounterController 自己重置航行进度
+                    if (VoyageProgressMgr != null)
+                    {
+                        VoyageProgressMgr.ResetVoyage();
+                        Debug.Log("[EncounterSequence] 遭遇结束，进入下一次航行");
+                    }
 
                     OnIslandEncounterFinished?.Invoke();
                     return;
@@ -271,7 +296,7 @@ namespace TideboundWar
 
             _isMoving = false; // 停止停靠移动（理论上已经停靠完成）
             _leaveSequenceStarted = true;
-            Debug.Log("[IslandEncounter] 收到全部回船事件");
+            Debug.Log("[IslandEncounter] 收到全部回船事件，准备收回木板");
 
             // ── 先收木板 ──
             RetractBoardThenReturnCamera();
@@ -287,7 +312,8 @@ namespace TideboundWar
         /// <summary>木板收回完成回调：让岛屿离开</summary>
         private void OnBoardRetracted()
         {
-            Debug.Log("[IslandEncounter] 木板收回完成");
+            _boardRetractTimer = 0f; // 重置超时
+            Debug.Log("[IslandEncounter] 木板收回完成，岛屿开始离开");
             ReturnCameraAndExit();
         }
 
@@ -299,6 +325,7 @@ namespace TideboundWar
             if (CameraDirector != null)
                 CameraDirector.OnCameraArrived -= OnCameraReturnedToShip;
 
+            Debug.Log("[IslandEncounter] 镜头已回到船上，岛屿开始离开");
             StartIslandExit();
         }
 
@@ -310,10 +337,12 @@ namespace TideboundWar
             if (BoardAnimCtrl != null)
             {
                 Debug.Log("[IslandEncounter] 开始收回木板");
+                _boardRetractTimer = BoardRetractTimeout;
                 BoardAnimCtrl.PlayRetract(OnBoardRetracted);
             }
             else
             {
+                Debug.LogWarning("[IslandEncounter] BoardAnimCtrl 未设置，跳过木板收回，直接回镜头");
                 ReturnCameraAndExit();
             }
         }
@@ -338,8 +367,7 @@ namespace TideboundWar
         private void StartIslandExit()
         {
             _isExiting = true;
-            Debug.Log("[IslandEncounter] 岛屿开始离开");
-            Debug.Log("[IslandEncounterController] 岛屿开始离开，移向 IslandExitPoint");
+            Debug.Log("[IslandEncounter] 岛屿开始离开，移向 IslandExitPoint");
         }
     }
 }

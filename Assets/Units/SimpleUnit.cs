@@ -153,6 +153,9 @@ namespace TideboundWar
         /// <summary>战斗等待标记：战斗已开始但士兵还没到 LandingPoint，走完后直接进战斗</summary>
         private bool _combatPendingAfterLanding;
 
+        /// <summary>通用路点移动完成回调（由 BeginMoveAlongPath 设置，路径走完后直接调用，不依赖 OnArrivedAtAnchor）</summary>
+        private System.Action<SimpleUnit> _pathCompleteCallback;
+
         // Advance 状态内部
         private Vector3 _advanceTarget;             // 推进目标点（世界坐标）
         private PolygonCollider2D _advanceArea;     // 推进约束区域
@@ -563,7 +566,7 @@ namespace TideboundWar
             if (_landingWaypoints == null || _landingWaypointIndex >= _landingWaypoints.Length)
             {
                 // 安全兜底：不应走到这里
-                FinishLanding();
+                CompletePathMovement();
                 return;
             }
 
@@ -590,7 +593,7 @@ namespace TideboundWar
 
                 if (_landingWaypointIndex >= _landingWaypoints.Length)
                 {
-                    FinishLanding();
+                    CompletePathMovement();
                 }
                 return;
             }
@@ -843,6 +846,62 @@ namespace TideboundWar
             _combatPendingAfterLanding = false;
 
             TransitionTo(UnitState.Landing);
+        }
+
+        /// <summary>
+        /// 通用路点移动：沿 path 走到最后一个点时调用 onComplete(this)。
+        /// 与 BeginLanding 的区别：
+        ///   - BeginLanding 走完后调 FinishLanding()，通过 OnArrivedAtAnchor 通知外部；
+        ///   - BeginMoveAlongPath 走完后直接调 onComplete，不依赖状态机事件，更可靠。
+        /// 登陆用 BeginLanding，回船等非登陆场景用此方法。
+        /// </summary>
+        /// <param name="path">路点数组（世界坐标）</param>
+        /// <param name="onComplete">路径走完后的回调，传入 this</param>
+        /// <param name="finalAnchor">到达后的站位（成为 AnchorPosition）</param>
+        /// <param name="finalArea">到达后的漫步约束区域（成为 SpawnArea）</param>
+        public void BeginMoveAlongPath(Vector3[] path, System.Action<SimpleUnit> onComplete,
+            Vector3 finalAnchor, PolygonCollider2D finalArea)
+        {
+            if (State == UnitState.Dead || IsDead) return;
+
+            _landingWaypoints = path;
+            _landingWaypointIndex = 0;
+            _gatherAnchor = finalAnchor;
+            _gatherArea = finalArea;
+            _pathCompleteCallback = onComplete;
+            _combatPendingAfterLanding = false;
+
+            TransitionTo(UnitState.Landing);
+        }
+
+        /// <summary>
+        /// 路径移动完成处理：
+        ///   - 如果有 _pathCompleteCallback（由 BeginMoveAlongPath 设置），直接调回调；
+        ///   - 否则调 FinishLanding（传统登陆流程）。
+        /// </summary>
+        private void CompletePathMovement()
+        {
+            if (_pathCompleteCallback != null)
+            {
+                var cb = _pathCompleteCallback;
+                _pathCompleteCallback = null;
+
+                SetWalking(false);
+                AnchorPosition = _gatherAnchor;
+                HasAnchor = true;
+                SpawnArea = _gatherArea;
+                UpdateAnchorLocal();
+
+                // 抑制 OnArrivedAtAnchor，由回调直接通知，不走状态机事件
+                _suppressArrivedEvent = true;
+                TransitionTo(UnitState.IdleReady);
+
+                cb(this);
+            }
+            else
+            {
+                FinishLanding();
+            }
         }
 
         /// <summary>

@@ -78,7 +78,7 @@ namespace TideboundWar
 
             _onComplete = onComplete;
             _animator.SetTrigger(ParamDoRetract);
-            Debug.Log("[ShipBoard] 播放收回动画");
+            Debug.Log("[ShipBoard] 开始播放收回动画");
         }
 
         // ── Animation Event 回调（由动画剪辑末尾的事件调用） ──
@@ -100,6 +100,9 @@ namespace TideboundWar
             Debug.Log("[ShipBoard] 收回动画播放完成");
             FireComplete();
         }
+
+        // ── 超时兜底：如果 Animation Event 没触发，由外部超时强制继续 ──
+        // （IslandEncounterController 有 BoardRetractTimeout 超时机制）
 
         private void FireComplete()
         {
