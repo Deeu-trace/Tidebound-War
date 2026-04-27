@@ -19,6 +19,16 @@ namespace TideboundWar
     ///   - 撤退完成 → OnRetractArrived → 加入上船队列
     ///   - 上船完成 → OnBoardArrived → returnedCount++ → 全部完成则 FireAllReturned
     ///
+    /// 士兵来源（战斗结束时全量收集）：
+    ///   - BattleManager.AliveAllies：战斗中的友军
+    ///   - LandingController.AllKnownAllies：正在登陆/等待登陆/已登陆的友军
+    ///   - UnitSpawner.AliveUnits：所有存活友军（兜底）
+    ///
+    /// 分类处理：
+    ///   A. 已在 ShipGatherArea 内 → 直接标记完成
+    ///   B. 木板/未到 LandingPoint → 掉头回船（不走撤退路线）
+    ///   C. 已在岛上 → 正常撤退+上船流程
+    ///
     /// 挂载位置：GameManager 或 Systems 空物体上
     /// </summary>
     public class ReturnToShipController : MonoBehaviour
@@ -38,6 +48,10 @@ namespace TideboundWar
         public PolygonCollider2D ShipGatherArea;
         [Tooltip("战斗管理器")]
         public BattleManager BattleManager;
+        [Tooltip("登陆控制器（获取正在登陆的士兵）")]
+        public LandingController LandingController;
+        [Tooltip("友军产兵器（兜底获取所有存活友军）")]
+        public UnitSpawner AllySpawner;
         [Tooltip("友军容器（回船后士兵放到此容器下）")]
         public Transform AllyContainer;
 
@@ -179,32 +193,63 @@ namespace TideboundWar
 
         public void BeginReturn()
         {
-            if (BattleManager == null) { Debug.LogWarning("[ReturnToShip] BattleManager 未设置"); return; }
             if (BoardingPoint == null) { Debug.LogError("[ReturnToShip] BoardingPoint 未设置！"); return; }
             if (ShipGatherArea == null) { Debug.LogError("[ReturnToShip] ShipGatherArea 未设置！"); return; }
 
-            // ── 收集存活友军 ──
-            var survivors = new List<SimpleUnit>();
-            foreach (var unit in BattleManager.AliveAllies)
+            // ── 1. 全量收集所有存活友军 ──
+            var allAllies = new HashSet<SimpleUnit>();
+
+            // 来源 A: BattleManager 中的战斗友军
+            if (BattleManager != null)
             {
-                if (unit == null) continue;
-                if (unit.IsDead) continue;                    // 逻辑死亡
-                if (unit.State == UnitState.Dead) continue;   // 状态机死亡
-                if (unit.Faction != Faction.Ally) continue;   // 只收友军
-                survivors.Add(unit);
+                foreach (var unit in BattleManager.AliveAllies)
+                {
+                    if (unit == null) continue;
+                    if (unit.IsDead || unit.State == UnitState.Dead) continue;
+                    if (unit.Faction != Faction.Ally) continue;
+                    allAllies.Add(unit);
+                }
             }
 
-            if (survivors.Count == 0)
+            // 来源 B: LandingController 中的登陆中/等待登陆/已登陆的友军
+            if (LandingController != null)
+            {
+                foreach (var unit in LandingController.AllKnownAllies)
+                {
+                    if (unit == null) continue;
+                    if (unit.IsDead || unit.State == UnitState.Dead) continue;
+                    allAllies.Add(unit);
+                }
+
+                // 取消等待登陆队列：还没出发的留在船上
+                LandingController.CancelPendingLandings();
+            }
+
+            // 来源 C: UnitSpawner 兜底（可能有刚产出还没被任何人追踪的士兵）
+            if (AllySpawner != null)
+            {
+                foreach (var unitTf in AllySpawner.AliveUnits)
+                {
+                    if (unitTf == null) continue;
+                    SimpleUnit unit = unitTf.GetComponent<SimpleUnit>();
+                    if (unit != null && !unit.IsDead && unit.State != UnitState.Dead && unit.Faction == Faction.Ally)
+                        allAllies.Add(unit);
+                }
+            }
+
+            Debug.Log($"[ReturnToShip] 接管所有我方士兵，数量 = {allAllies.Count}");
+
+            if (allAllies.Count == 0)
             {
                 Debug.LogWarning("[ReturnToShip] 没有存活友军，直接结束回船流程");
                 FireAllReturned();
                 return;
             }
 
-            // ── 获取岛屿路径点 ──
+            // ── 2. 获取岛屿路径点 ──
             Transform landingPoint = null;
             PolygonCollider2D walkableArea = null;
-            if (BattleManager.IslandInstance != null)
+            if (BattleManager != null && BattleManager.IslandInstance != null)
             {
                 landingPoint = BattleManager.IslandInstance.transform.Find("Points/LandingPoint");
                 var waTf = BattleManager.IslandInstance.transform.Find("Areas/IslandWalkableArea");
@@ -215,7 +260,7 @@ namespace TideboundWar
             if (walkableArea == null)
                 Debug.LogWarning("[ReturnToShip] 未找到 IslandWalkableArea，撤退等待点将不受岛屿边界约束");
 
-            // ── 清空旧状态 ──
+            // ── 3. 清空旧状态 ──
             _assignedShipPoints.Clear();
             _shoreWaitPoints.Clear();
             _retractQueue.Clear();
@@ -227,7 +272,6 @@ namespace TideboundWar
             _returnedUnits.Clear();
             _processedUnits.Clear();
 
-            _returnCount = survivors.Count;
             _returnedCount = 0;
             _allReturnedFired = false;
             _isProcessingBoardQueue = false;
@@ -235,18 +279,97 @@ namespace TideboundWar
             _cachedWalkableArea = walkableArea;
             _debugLogTimer = 0f;
 
-            // ── 记录本次需要回船的士兵 ──
-            foreach (var unit in survivors)
-                _returningUnits.Add(unit);
+            // ── 4. 分类每个士兵 ──
 
-            // ── 生成撤退等待点 ──
-            var waitPoints = GenerateWaitPoints(survivors.Count, landingPoint, walkableArea);
+            var alreadyOnShip = new List<SimpleUnit>();   // 情况 A: 已在船上
+            var onPlank = new List<SimpleUnit>();          // 情况 B: 木板/未到 LandingPoint
+            var onIsland = new List<SimpleUnit>();         // 情况 C: 已在岛上
 
-            // ── 所有士兵退出战斗 + 加入撤退队列 ──
-            for (int i = 0; i < survivors.Count; i++)
+            foreach (var unit in allAllies)
             {
-                SimpleUnit unit = survivors[i];
-                BattleManager.DischargeAlly(unit);
+                // 情况 A: 已经在 ShipGatherArea 内
+                if (unit.IsInsideArea(ShipGatherArea))
+                {
+                    alreadyOnShip.Add(unit);
+                    continue;
+                }
+
+                // 情况 B: 还没到 LandingPoint（在船上/木板上）
+                if (!unit.HasReachedLandingPoint)
+                {
+                    onPlank.Add(unit);
+                    continue;
+                }
+
+                // 情况 C: 已经到达过 LandingPoint，或当前位置在岛上
+                onIsland.Add(unit);
+            }
+
+            // ── 5. 处理情况 A: 已在船上 → 直接标记完成 ──
+            foreach (var unit in alreadyOnShip)
+            {
+                // 不需要移动，直接标记
+                _returnedUnits.Add(unit);
+                _processedUnits.Add(unit);
+                _returnedCount++;
+
+                // 重置登陆状态
+                unit.ResetLandingState();
+
+                // 确保停在 IdleReady
+                if (unit.State == UnitState.Landing || unit.State == UnitState.Combat)
+                {
+                    unit.InterruptCurrentPath();
+                }
+
+                // 放到 AllyContainer 下
+                if (AllyContainer != null)
+                    unit.transform.SetParent(AllyContainer, worldPositionStays: true);
+
+                Debug.Log($"[ReturnToShip] {unit.gameObject.name} 已在船上，标记完成");
+            }
+
+            // ── 6. 处理情况 B: 木板/未到 LandingPoint → 掉头回船 ──
+            foreach (var unit in onPlank)
+            {
+                // 从 BattleManager 释放（如果在战斗列表中）
+                if (BattleManager != null)
+                    BattleManager.DischargeAlly(unit);
+
+                // 中断当前登陆路径
+                unit.InterruptCurrentPath();
+
+                // 掉头回船：当前位置 → BoardingPoint → ShipGatherArea 随机点
+                Vector3 shipPoint = AssignShipPoint();
+                var waypoints = new List<Vector3>();
+                waypoints.Add(unit.transform.position);
+                waypoints.Add(BoardingPoint.position);
+                waypoints.Add(shipPoint);
+
+                _returningUnits.Add(unit);
+                _boardingUnits.Add(unit);
+
+                unit.BeginMoveAlongPath(waypoints.ToArray(), OnBoardArrived, shipPoint, ShipGatherArea);
+                _assignedShipPoints.Add(shipPoint);
+
+                Debug.Log($"[ReturnToShip] {unit.gameObject.name} 正在木板/未到 LandingPoint，掉头回船");
+            }
+
+            // ── 7. 处理情况 C: 已在岛上 → 正常撤退+上船流程 ──
+            // 生成撤退等待点
+            var waitPoints = GenerateWaitPoints(onIsland.Count, landingPoint, walkableArea);
+
+            for (int i = 0; i < onIsland.Count; i++)
+            {
+                SimpleUnit unit = onIsland[i];
+
+                // 从 BattleManager 释放（如果在战斗列表中）
+                if (BattleManager != null)
+                    BattleManager.DischargeAlly(unit);
+
+                // 中断可能残留的登陆路径（如果还在 Landing 状态）
+                if (unit.State == UnitState.Landing)
+                    unit.InterruptCurrentPath();
 
                 Vector3 waitPos = waitPoints[i];
 
@@ -256,6 +379,8 @@ namespace TideboundWar
                     unit.transform.position,
                     waitPos
                 };
+
+                _returningUnits.Add(unit);
 
                 _retractQueue.Enqueue(new ReturnInfo
                 {
@@ -268,11 +393,21 @@ namespace TideboundWar
                 _shoreWaitPoints[unit] = waitPos;
             }
 
+            // ── 8. 设置计数 ──
+            _returnCount = alreadyOnShip.Count + onPlank.Count + onIsland.Count;
+
             _retractTimer = 0f;
             _boardTimer = 0f;
             _isActive = true;
 
-            Debug.Log($"[ReturnToShip] 开始回船，共 {survivors.Count} 名士兵");
+            Debug.Log($"[ReturnToShip] 开始回船，共 {_returnCount} 名士兵（船上:{alreadyOnShip.Count} 掉头:{onPlank.Count} 撤退:{onIsland.Count}）");
+
+            // 如果所有士兵都已在船上，直接完成
+            if (_returnedCount >= _returnCount)
+            {
+                _isActive = false;
+                FireAllReturned();
+            }
         }
 
         // ── 撤退释放 ──

@@ -85,6 +85,9 @@ namespace TideboundWar
         // 防重复加入
         private readonly HashSet<SimpleUnit> _allKnownUnits = new HashSet<SimpleUnit>();
 
+        // 战斗结束标记：阻止新兵继续下船
+        private bool _battleEnded;
+
         // ── 生命周期 ──
 
         private void OnEnable()
@@ -158,6 +161,13 @@ namespace TideboundWar
             // 防重复
             if (_allKnownUnits.Contains(unit)) return;
             if (unit.State == UnitState.Dead) return;
+
+            // 战斗已结束，新兵留在船上，不安排登陆
+            if (_battleEnded)
+            {
+                Debug.Log($"[LandingController] 战斗已结束，{unit.gameObject.name} 留在船上");
+                return;
+            }
 
             EnqueueForLanding(unit);
         }
@@ -262,6 +272,7 @@ namespace TideboundWar
             _hasBattleStarted = false;
             _isBattleCheckActive = true;
             _isAdvancePhase = false;
+            _battleEnded = false;
         }
 
         /// <summary>
@@ -631,6 +642,52 @@ namespace TideboundWar
                     return true;
             }
             return false;
+        }
+
+        // ── 战斗结束后对外接口 ──
+
+        /// <summary>
+        /// 所有已知的友军（包括等待登陆、正在登陆、已登陆的），供 ReturnToShipController 收集。
+        /// </summary>
+        public IEnumerable<SimpleUnit> AllKnownAllies
+        {
+            get
+            {
+                foreach (var unit in _waitingToLand)
+                    if (unit != null && unit.State != UnitState.Dead) yield return unit;
+                foreach (var unit in _landingUnits)
+                    if (unit != null && unit.State != UnitState.Dead) yield return unit;
+                foreach (var unit in _landedUnits)
+                    if (unit != null && unit.State != UnitState.Dead) yield return unit;
+            }
+        }
+
+        /// <summary>
+        /// 战斗结束后由 ReturnToShipController 调用：
+        /// 1. 设置 _battleEnded 标记，阻止新兵继续下船
+        /// 2. 取消所有等待登陆的士兵（还没出发的留在船上）
+        /// 3. 清空登陆队列
+        /// 正在路上的士兵（_landingUnits）不会被取消，由 ReturnToShipController 接管。
+        /// </summary>
+        public void CancelPendingLandings()
+        {
+            _battleEnded = true;
+
+            int cancelCount = _waitingToLand.Count;
+
+            // 取消等待登陆的士兵的 OnArrivedAtAnchor 订阅
+            foreach (var unit in _waitingToLand)
+            {
+                if (unit != null)
+                    unit.OnArrivedAtAnchor -= OnSoldierArrivedAtGatherPoint;
+            }
+
+            _waitingToLand.Clear();
+            _landingQueue.Clear();
+            _isLanding = false;
+
+            if (cancelCount > 0)
+                Debug.Log($"[LandingController] 战斗已结束，取消等待登陆队列，{cancelCount} 名士兵留在船上");
         }
     }
 }

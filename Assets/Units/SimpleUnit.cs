@@ -914,6 +914,41 @@ namespace TideboundWar
             _combatPendingAfterLanding = true;
         }
 
+        /// <summary>
+        /// 中断当前路点移动（Landing 状态），清空路径和回调，转 IdleReady。
+        /// 用于回船时中断正在进行的登陆路线，让外部系统重新安排路径。
+        /// 不会触发 OnArrivedAtAnchor 事件。
+        /// </summary>
+        public void InterruptCurrentPath()
+        {
+            if (State == UnitState.Dead || IsDead) return;
+
+            // 清空路径和回调
+            _landingWaypoints = null;
+            _landingWaypointIndex = 0;
+            _pathCompleteCallback = null;
+            _combatPendingAfterLanding = false;
+
+            SetWalking(false);
+            AnchorPosition = transform.position;
+            HasAnchor = true;
+            UpdateAnchorLocal();
+
+            // 抑制 OnArrivedAtAnchor，外部会通过新路径重新安排
+            _suppressArrivedEvent = true;
+            TransitionTo(UnitState.IdleReady);
+        }
+
+        /// <summary>
+        /// 判断单位当前位置是否在指定多边形区域内。
+        /// 用于判断士兵是否已经在船上等场景。
+        /// </summary>
+        public bool IsInsideArea(PolygonCollider2D area)
+        {
+            if (area == null) return false;
+            return area.OverlapPoint(transform.position);
+        }
+
         /// <summary>退出战斗，停在原地等待外部指令（如撤退、登陆等）</summary>
         public void ExitCombat()
         {
