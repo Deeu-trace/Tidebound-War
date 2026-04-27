@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 619e02aa67cd632408acc6a3b5db97ae, type: 3}
+  m_Name: GameConfig
+  m_EditorClassIdentifier: 
+  BoardColumns: 5
+  BoardRows: 8
+  TileSize: 80
+  DragThreshold: 30
+  MatchMin: 3
+  TileWeights:
+  - 0.3
+  - 0.25
+  - 0.25
+  - 0.2
+  SwordColor: {r: 0.2, g: 0.4, b: 0.9, a: 1}
+  GoldColor: {r: 0.9, g: 0.8, b: 0.1, a: 1}
+  WoodColor: {r: 0.2, g: 0.8, b: 0.3, a: 1}
+  StoneColor: {r: 0.7, g: 0.5, b: 0.3, a: 1}
+  SwordLabel: "\u5251"
+  GoldLabel: "\u91D1"
+  WoodLabel: "\u6728"
+  StoneLabel: "\u77F3"
+  ResourcePerTile: 1
+  SwapAnimDuration: 0.2
+  RemoveAnimDuration: 0.15
+  FallAnimDuration: 0.12
+  SpawnAnimDuration: 0.2
+  ShuffleAnimDuration: 0.5

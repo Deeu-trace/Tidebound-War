@@ -1,0 +1,162 @@
+{
+    "name": "GameInputActions",
+    "maps": [
+        {
+            "name": "Gameplay",
+            "id": "a1b2c3d4-1111-2222-3333-444455556666",
+            "actions": [
+                {
+                    "name": "Point",
+                    "type": "Value",
+                    "id": "10000000-1111-2222-3333-444455556601",
+                    "expectedControlType": "Vector2",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                },
+                {
+                    "name": "Press",
+                    "type": "Button",
+                    "id": "10000000-1111-2222-3333-444455556602",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                },
+                {
+                    "name": "Submit",
+                    "type": "Button",
+                    "id": "10000000-1111-2222-3333-444455556603",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                },
+                {
+                    "name": "Cancel",
+                    "type": "Button",
+                    "id": "10000000-1111-2222-3333-444455556604",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "20000000-1111-2222-3333-444455556601",
+                    "path": "<Pointer>/position",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Point",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20000000-1111-2222-3333-444455556602",
+                    "path": "<Pointer>/press",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Press",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20000000-1111-2222-3333-444455556603",
+                    "path": "<Keyboard>/enter",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Submit",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20000000-1111-2222-3333-444455556604",
+                    "path": "<Keyboard>/escape",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Cancel",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        },
+        {
+            "name": "Debug",
+            "id": "a1b2c3d4-5555-6666-7777-888899990000",
+            "actions": [
+                {
+                    "name": "ShuffleBoard",
+                    "type": "Button",
+                    "id": "10000000-5555-6666-7777-888899990001",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                },
+                {
+                    "name": "NextPhase",
+                    "type": "Button",
+                    "id": "10000000-5555-6666-7777-888899990002",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                },
+                {
+                    "name": "SpawnTestUnit",
+                    "type": "Button",
+                    "id": "10000000-5555-6666-7777-888899990003",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "compositeBindings": []
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "20000000-5555-6666-7777-888899990001",
+                    "path": "<Keyboard>/f5",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "ShuffleBoard",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20000000-5555-6666-7777-888899990002",
+                    "path": "<Keyboard>/f6",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "NextPhase",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20000000-5555-6666-7777-888899990003",
+                    "path": "<Keyboard>/f7",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "SpawnTestUnit",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}
