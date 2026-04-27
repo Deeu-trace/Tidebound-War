@@ -71,16 +71,36 @@ namespace TideboundWar
     }
 
     /// <summary>
+    /// 一轮消除的数据，由 BoardSystem 计算，BoardView 在消除动画完成后广播。
+    /// </summary>
+    public struct TileClearInfo
+    {
+        public TileType Type;
+        public int Count;
+        public List<Vector3> WorldPositions;
+    }
+
+    /// <summary>
     /// 动画阶段：同一阶段内的所有命令同时播放，不同阶段顺序播放。
     /// 这是解决动画时序问题的核心结构。
     /// 
     /// 示例：一次匹配的命令阶段如下：
     ///   Phase1(Swap) → Phase2(Remove×3) → Phase3(Fall×2) → Phase4(Spawn×3)
     /// 每个阶段内的动画同时播放，阶段之间顺序播放。
+    /// 
+    /// ClearInfo：当此阶段包含消除命令时，BoardSystem 会把消除数据写入此字段，
+    /// BoardView 在该阶段动画完成后逐条广播 OnTileCleared。
     /// </summary>
     public class BoardPhase
     {
         public List<BoardCommand> Commands = new List<BoardCommand>();
+
+        /// <summary>
+        /// 本轮消除数据（可能包含多种类型）。
+        /// BoardView 在消除动画 Sequence 完成后，逐条调用 GameEvents.TileCleared。
+        /// 非 Remove 阶段此字段为 null。
+        /// </summary>
+        public List<TileClearInfo> ClearInfo;
 
         public BoardPhase() { }
 

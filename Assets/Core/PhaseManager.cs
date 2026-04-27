@@ -18,8 +18,9 @@ namespace TideboundWar
         /// <summary>阶段切换事件</summary>
         public event Action<GamePhase> OnPhaseChanged;
 
-        /// <summary>是否允许三消输入</summary>
-        public bool CanAcceptBoardInput => _currentPhase == GamePhase.Preparation;
+        /// <summary>是否允许三消输入（航行和战斗阶段都可以操作棋盘）</summary>
+        public bool CanAcceptBoardInput =>
+            _currentPhase == GamePhase.Preparation || _currentPhase == GamePhase.Battle;
 
         /// <summary>
         /// 切换到指定阶段

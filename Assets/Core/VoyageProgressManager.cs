@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 
@@ -5,7 +6,7 @@ namespace TideboundWar
 {
     /// <summary>
     /// 航行进度管理器。
-    /// 玩家每次有效三消结算后增加进度，进度满后触发岛屿遭遇。
+    /// 玩家每次有效三消结算后增加进度，进度满后等动画结束再触发岛屿遭遇。
     /// 
     /// 挂载位置：GameManager 或 Systems 空物体上。
     /// </summary>
@@ -17,7 +18,9 @@ namespace TideboundWar
         [Tooltip("每消除 1 个方块增加多少进度（可小数）")] public float ProgressPerClearedPiece = 1f;
 
         [Header("引用")]
-        [Tooltip("岛屿遭遇控制器（航行满后直接触发遭遇）")]
+        [Tooltip("遭遇序列管理器（航行满后通过它获取下一个岛屿）")]
+        public EncounterSequenceManager EncounterSequenceMgr;
+        [Tooltip("岛屿遭遇控制器（单岛模式回退用，多岛模式优先用 EncounterSequenceMgr）")]
         public IslandEncounterController IslandEncounterCtrl;
         [Tooltip("阶段管理器（进度满后切换阶段锁定三消盘）")]
         public PhaseManager PhaseMgr;
@@ -30,43 +33,55 @@ namespace TideboundWar
         [Tooltip("航行完成后是否锁定三消盘")] public bool LockMatchBoardWhenComplete = true;
 
         // ── 内部状态 ──
-        private bool _voyageComplete;  // 只触发一次
-        private bool _encounterStarting;
+        private bool _voyageComplete;           // 航行进度已满（用于去重）
+        private bool _encounterStarting;        // 岛屿遭遇已开始（防重入）
+        private bool _pendingVoyageComplete;    // 进度满但动画还没结束，等 OnBoardResolveComplete 再触发
 
         /// <summary>航行是否已完成</summary>
         public bool IsVoyageComplete => _voyageComplete;
 
         private void OnEnable()
         {
-            GameEvents.OnMatchResolved += OnMatchResolved;
+            GameEvents.OnTileCleared += OnTileCleared;
+            GameEvents.OnBoardResolveComplete += OnBoardResolveComplete;
         }
 
         private void OnDisable()
         {
-            GameEvents.OnMatchResolved -= OnMatchResolved;
+            GameEvents.OnTileCleared -= OnTileCleared;
+            GameEvents.OnBoardResolveComplete -= OnBoardResolveComplete;
         }
 
         private void Start()
         {
             CurrentProgress = 0;
             _voyageComplete = false;
+            _encounterStarting = false;
+            _pendingVoyageComplete = false;
             RefreshUI();
         }
 
-        // ── 每次实际消除后增加进度（连锁也会多次触发） ──
-        private void OnMatchResolved(TileType type, int count)
+        // ── 每次方块消除时增加进度（连锁也会多次触发） ──
+        private void OnTileCleared(TileType type, int count, List<Vector3> worldPositions)
         {
-            if (_voyageComplete || _encounterStarting)
-            {
-                Debug.Log("[Voyage] 航行已完成，忽略后续消除进度");
-                return;
-            }
+            if (_voyageComplete || _encounterStarting) return;
             if (count <= 0) return;
             AddProgressByClearedPieces(count);
         }
 
+        // ── 动画全部结束后，检查是否需要触发岛屿 ──
+        private void OnBoardResolveComplete()
+        {
+            if (_pendingVoyageComplete)
+            {
+                _pendingVoyageComplete = false;
+                TriggerVoyageComplete();
+            }
+        }
+
         /// <summary>
         /// 按消除方块数量增加航行进度：progressAdd = clearedCount * ProgressPerClearedPiece。
+        /// 进度满时不立刻触发岛屿，等 OnBoardResolveComplete。
         /// </summary>
         public void AddProgressByClearedPieces(int clearedCount)
         {
@@ -76,7 +91,8 @@ namespace TideboundWar
         }
 
         /// <summary>
-        /// 增加航行进度。达到上限后触发 OnVoyageComplete（只触发一次）。
+        /// 增加航行进度。达到上限后标记 _pendingVoyageComplete，
+        /// 等棋盘动画结束后由 OnBoardResolveComplete 触发岛屿。
         /// </summary>
         public void AddProgress(float amount)
         {
@@ -89,14 +105,16 @@ namespace TideboundWar
 
             if (CurrentProgress >= MaxProgress && !_voyageComplete)
             {
-                OnVoyageComplete();
+                // 不立刻触发岛屿，等动画结束
+                _pendingVoyageComplete = true;
+                Debug.Log("[Voyage] 航行进度已满，等待动画结束后触发岛屿遭遇");
             }
         }
 
         /// <summary>
-        /// 航行完成：触发岛屿遭遇 + 锁定三消盘。
+        /// 实际触发航行完成：锁定三消盘 + 触发岛屿遭遇。
         /// </summary>
-        private void OnVoyageComplete()
+        private void TriggerVoyageComplete()
         {
             if (_encounterStarting) return;
             _voyageComplete = true;
@@ -117,14 +135,19 @@ namespace TideboundWar
                 }
             }
 
-            // 2. 单岛模式：直接触发岛屿遭遇（绕开 EncounterSequenceManager）
-            if (IslandEncounterCtrl != null)
+            // 2. 触发岛屿遭遇：优先走序列模式，回退到单岛模式
+            if (EncounterSequenceMgr != null)
             {
+                EncounterSequenceMgr.StartNextEncounter();
+            }
+            else if (IslandEncounterCtrl != null)
+            {
+                // 单岛模式回退：直接用 Inspector 配置的 IslandPrefab
                 IslandEncounterCtrl.BeginEncounter();
             }
             else
             {
-                Debug.LogError("[Voyage] 单岛模式触发失败：请在 Inspector 设置 IslandEncounterCtrl");
+                Debug.LogError("[Voyage] 触发岛屿遭遇失败：EncounterSequenceMgr 和 IslandEncounterCtrl 都未设置");
             }
         }
 
@@ -144,6 +167,7 @@ namespace TideboundWar
             CurrentProgress = 0f;
             _voyageComplete = false;
             _encounterStarting = false;
+            _pendingVoyageComplete = false;
             if (PhaseMgr != null)
                 PhaseMgr.SetPhase(GamePhase.Preparation);
             RefreshUI();

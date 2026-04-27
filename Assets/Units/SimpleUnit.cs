@@ -963,6 +963,149 @@ namespace TideboundWar
         }
 
         /// <summary>
+        /// 岛上待命：退出战斗并立刻开始漫步。
+        /// 用于敌人全灭但清剿未满时，让士兵在岛上自由走动。
+        /// 自行处理：停止战斗、清空目标和攻击位、确保漫步区域合法、立刻选目标并开始移动。
+        /// 调用方只需调用此方法，不需要手动操控 SimpleUnit 内部状态。
+        /// </summary>
+        public void EnterIslandStandby()
+        {
+            if (State == UnitState.Dead || IsDead) return;
+
+            // 停止战斗行为
+            StopWalking();
+            StopAttacking();
+
+            // 清空攻击目标和攻击位
+            if (_meleeTarget != null)
+                _meleeTarget.ReleaseSlot(this);
+            ClearMeleeTarget();
+            ClearAllSlots();
+
+            // 设置当前位置为漫步锚点
+            AnchorPosition = transform.position;
+            HasAnchor = true;
+            UpdateAnchorLocal();
+
+            // 抑制误触发 OnArrivedAtAnchor
+            _suppressArrivedEvent = true;
+
+            // 确保漫步区域合法（SpawnArea 可能不包含当前位置）
+            EnsureWanderArea();
+
+            // 立刻开始漫步（选目标 + 开始移动）
+            StartWanderingNow();
+
+            Debug.Log($"[SimpleUnit] {gameObject.name} 进入岛上待命/漫步");
+        }
+
+        /// <summary>
+        /// 确保当前单位有合法的漫步区域。
+        /// 战斗中士兵追击敌人可能移到 SpawnArea（AllyGatherArea）之外，
+        /// 导致 PickNewWanderTarget 所有候选点都落在 SpawnArea 外而全部失败。
+        /// 区域选择优先级：
+        ///   1. SpawnArea 包含当前位置 → 合法，无需处理
+        ///   2. _gatherArea（集结区域，可能更宽）
+        ///   3. IslandWalkableArea（全岛可行走边界，兜底防走出岛）
+        ///   4. 都不包含 → 清除区域约束，允许自由漫步（最后手段）
+        /// </summary>
+        private void EnsureWanderArea()
+        {
+            // 1. SpawnArea 包含当前位置 → 合法，无需处理
+            if (SpawnArea != null && SpawnArea.OverlapPoint(transform.position))
+                return;
+
+            // SpawnArea 为空或不包含当前位置
+            string reason = SpawnArea == null
+                ? "SpawnArea 为空"
+                : $"SpawnArea({SpawnArea.name}) 不包含当前位置{transform.position}";
+
+            // 2. 尝试使用 _gatherArea（集结区域，可能更宽）
+            if (_gatherArea != null && _gatherArea.OverlapPoint(transform.position))
+            {
+                Debug.Log($"[SimpleUnit] {gameObject.name} {reason}，改用 _gatherArea({_gatherArea.name}) 作为漫步区域");
+                SpawnArea = _gatherArea;
+                return;
+            }
+
+            // 3. 尝试查找 IslandWalkableArea（全岛可行走边界，兜底防走出岛）
+            //    岛屿预制体结构：IslandXX/Areas/IslandWalkableArea
+            //    WanderRoot 指向岛屿实例的 Transform
+            PolygonCollider2D walkableArea = FindIslandWalkableArea();
+            if (walkableArea != null && walkableArea.OverlapPoint(transform.position))
+            {
+                Debug.Log($"[SimpleUnit] {gameObject.name} {reason}，改用 IslandWalkableArea({walkableArea.name}) 作为漫步区域");
+                SpawnArea = walkableArea;
+                return;
+            }
+
+            // 4. 都不包含当前位置 → 清除区域约束（最后手段）
+            Debug.LogWarning($"[SimpleUnit] {gameObject.name} {reason}，" +
+                $"_gatherArea={(_gatherArea != null ? _gatherArea.name : "null")}, " +
+                $"IslandWalkableArea={(walkableArea != null ? walkableArea.name : "未找到")}。" +
+                "战斗中追击敌人可能移出了所有区域。暂时清除区域约束，允许自由漫步。");
+            SpawnArea = null;
+        }
+
+        /// <summary>
+        /// 通过 WanderRoot 查找岛屿上的 IslandWalkableArea。
+        /// 岛屿预制体结构：IslandXX/Areas/IslandWalkableArea
+        /// WanderRoot 在岛屿实例上，用 Transform.Find 按路径查找子对象。
+        /// </summary>
+        private PolygonCollider2D FindIslandWalkableArea()
+        {
+            if (WanderRoot == null) return null;
+
+            Transform areasTf = WanderRoot.Find("Areas/IslandWalkableArea");
+            if (areasTf != null)
+                return areasTf.GetComponent<PolygonCollider2D>();
+
+            // 直接查找 IslandWalkableArea（防御：层级可能不同）
+            Transform found = WanderRoot.Find("IslandWalkableArea");
+            if (found != null)
+                return found.GetComponent<PolygonCollider2D>();
+
+            return null;
+        }
+
+        /// <summary>
+        /// 立刻开始漫步：清空旧目标、选新目标、切换到 Wandering 状态、让单位真正开始移动。
+        /// 与单纯 TransitionTo(Wandering) 的区别：
+        ///   - 立刻调用 PickNewWanderTarget 选目标（不等下一帧 UpdateWandering）
+        ///   - 选到目标后立刻 SetWalking(true) 开始移动动画
+        ///   - 选目标失败时输出 Warning，而不是静默站着不动
+        /// </summary>
+        private void StartWanderingNow()
+        {
+            // 清空旧漫步目标
+            _wanderTargetSet = false;
+            _stateTimer = 0f;
+
+            // 切换到 Wandering 状态（TransitionTo 也会设 _wanderTargetSet=false, _stateTimer=0，但显式设置更清晰）
+            TransitionTo(UnitState.Wandering);
+
+            // 立刻选一个新的漫步目标（不等下一帧 UpdateWandering）
+            PickNewWanderTarget();
+
+            if (_wanderTargetSet)
+            {
+                // 成功选到目标，立刻开始走向目标
+                SetWalking(true);
+                Debug.Log($"[SimpleUnit] {gameObject.name} 开始漫步，" +
+                    $"SpawnArea={(SpawnArea != null ? SpawnArea.name : "无约束")}, " +
+                    $"WanderRoot={(WanderRoot != null ? WanderRoot.name : "null")}");
+            }
+            else
+            {
+                // PickNewWanderTarget 失败：无法漫步
+                Debug.LogWarning($"[SimpleUnit] {gameObject.name} StartWanderingNow: PickNewWanderTarget 失败！" +
+                    $"SpawnArea={(SpawnArea != null ? SpawnArea.name : "null")}, " +
+                    $"WanderRoot={(WanderRoot != null ? WanderRoot.name : "null")}, " +
+                    $"AnchorPosition={AnchorPosition}, WanderRadius={WanderRadius}");
+            }
+        }
+
+        /// <summary>
         /// 重置登陆相关状态。在回船后、下次岛屿战斗前调用。
         /// 确保下次战斗时士兵必须重新经过 LandingPoint 才能参战。
         /// </summary>

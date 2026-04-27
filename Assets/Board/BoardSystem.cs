@@ -16,6 +16,10 @@ namespace TideboundWar
         private System.Random _rng;
         private bool _isProcessing;
 
+        /// <summary>当前激活的方块类型列表（由 BoardPhaseController 切换）</summary>
+        private TileType[] _activeTileTypes = { TileType.Sword, TileType.Gold, TileType.Wood, TileType.Stone };
+        private float[] _activeTileWeights = null; // 缓存当前阶段的权重数组
+
         public bool IsProcessing => _isProcessing;
         public BoardData BoardData => _boardData;
 
@@ -33,6 +37,13 @@ namespace TideboundWar
 
         public void InitializeBoard()
         {
+            // 首次调用时如果还没设置活跃类型，用航行方块初始化
+            if (_activeTileWeights == null)
+            {
+                _activeTileTypes = new[] { TileType.Sword, TileType.Gold, TileType.Wood, TileType.Stone };
+                _activeTileWeights = _gameConfig.TileWeights;
+            }
+
             int cols = _gameConfig.BoardColumns;
             int rows = _gameConfig.BoardRows;
             _boardData = new BoardData(cols, rows);
@@ -236,7 +247,7 @@ namespace TideboundWar
         private void ProcessMatchesChain(List<List<Vector2Int>> matches, List<BoardPhase> phases, int chainDepth)
         {
             var toRemove = new HashSet<Vector2Int>();
-            var matchInfo = new Dictionary<TileType, int>();
+            var matchInfoByType = new Dictionary<TileType, List<Vector2Int>>();
 
             foreach (var match in matches)
             {
@@ -245,22 +256,32 @@ namespace TideboundWar
                 {
                     if (toRemove.Add(pos))
                     {
-                        if (!matchInfo.ContainsKey(type))
-                            matchInfo[type] = 0;
-                        matchInfo[type]++;
+                        if (!matchInfoByType.ContainsKey(type))
+                            matchInfoByType[type] = new List<Vector2Int>();
+                        matchInfoByType[type].Add(pos);
                     }
                 }
             }
 
 
-            // ── 触发游戏事件 ──
-            foreach (var kv in matchInfo)
+            // ── 收集消除数据（不直接广播，传给 BoardView 在动画完成后广播） ──
+            var clearInfoList = new List<TileClearInfo>(matchInfoByType.Count);
+            foreach (var kv in matchInfoByType)
             {
-                GameEvents.MatchResolved(kv.Key, kv.Value);
+                var worldPositions = new List<Vector3>(kv.Value.Count);
+                foreach (var gridPos in kv.Value)
+                    worldPositions.Add(GridToWorldPosition(gridPos));
+                clearInfoList.Add(new TileClearInfo
+                {
+                    Type = kv.Key,
+                    Count = kv.Value.Count,
+                    WorldPositions = worldPositions
+                });
             }
 
             // ── Phase: 消除 ──
             var removePhase = new BoardPhase();
+            removePhase.ClearInfo = clearInfoList;
             foreach (var pos in toRemove)
             {
                 removePhase.Add(new RemoveCommand
@@ -426,28 +447,83 @@ namespace TideboundWar
 
         private TileType RandomTileType()
         {
+            // 使用当前激活的方块类型和权重
+            var types = _activeTileTypes;
+            var weights = _activeTileWeights;
+
+            if (types == null || types.Length == 0)
+            {
+                Debug.LogError("[BoardSystem] _activeTileTypes 为空，回退到航行方块");
+                types = new[] { TileType.Sword, TileType.Gold, TileType.Wood, TileType.Stone };
+                weights = _gameConfig.TileWeights;
+            }
+
             float totalWeight = 0f;
-            var weights = _gameConfig.TileWeights;
-            for (int i = 0; i < weights.Length; i++)
+            for (int i = 0; i < weights.Length && i < types.Length; i++)
                 totalWeight += weights[i];
 
             float roll = (float)_rng.NextDouble() * totalWeight;
             float cumulative = 0f;
 
-            for (int i = 0; i < weights.Length; i++)
+            for (int i = 0; i < weights.Length && i < types.Length; i++)
             {
                 cumulative += weights[i];
                 if (roll <= cumulative)
-                    return (TileType)i;
+                    return types[i];
             }
 
-            return (TileType)(weights.Length - 1);
+            return types[types.Length - 1];
         }
 
         public TileType GetTileType(int x, int y) => _boardData[x, y];
         public (int cols, int rows) GetBoardSize() => (_gameConfig.BoardColumns, _gameConfig.BoardRows);
 
+        /// <summary>
+        /// 设置当前激活的方块类型和权重。
+        /// 调用后需再调 InitializeBoard() 重新生成棋盘。
+        /// </summary>
+        /// <param name="types">激活的方块类型数组</param>
+        /// <param name="weights">对应权重数组（长度必须与 types 一致）</param>
+        public void SetActiveTileTypes(TileType[] types, float[] weights)
+        {
+            if (types == null || types.Length == 0)
+            {
+                Debug.LogError("[BoardSystem] SetActiveTileTypes: types 不能为空");
+                return;
+            }
+            if (weights == null || weights.Length != types.Length)
+            {
+                Debug.LogError($"[BoardSystem] SetActiveTileTypes: weights 长度({weights?.Length ?? 0}) 必须与 types 长度({types.Length}) 一致");
+                return;
+            }
+
+            _activeTileTypes = types;
+            _activeTileWeights = weights;
+            Debug.Log($"[BoardSystem] 切换方块类型：{string.Join(", ", System.Array.ConvertAll(types, t => t.ToString()))}");
+        }
+
         public void SetProcessing(bool processing) => _isProcessing = processing;
+
+        /// <summary>
+        /// 将棋盘格坐标转换为世界坐标。
+        /// 基于 GameConfig.TileSize 和 BoardSystem 的 transform 计算近似位置，
+        /// 供 OnTileCleared 事件的 worldPositions 使用。
+        /// </summary>
+        private Vector3 GridToWorldPosition(Vector2Int gridPos)
+        {
+            float ts = _gameConfig.TileSize;
+            int cols = _gameConfig.BoardColumns;
+            int rows = _gameConfig.BoardRows;
+
+            // 棋盘局部坐标（以棋盘中心为原点）
+            Vector3 local = new Vector3(
+                -cols * ts * 0.5f + gridPos.x * ts + ts * 0.5f,
+                -rows * ts * 0.5f + gridPos.y * ts + ts * 0.5f,
+                0f
+            );
+
+            return transform.TransformPoint(local);
+        }
 
         #endregion
     }

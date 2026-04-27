@@ -29,6 +29,10 @@ namespace TideboundWar
         [Header("安全参数")]
         [Tooltip("启用战斗调试日志")] public bool EnableBattleDebugLog;
 
+        [Header("胜利条件")]
+        [Tooltip("清剿进度管理器（胜利条件：清剿满 + 敌人全灭）")]
+        public BattleClearProgressManager ClearProgressMgr;
+
         // ── 内部状态 ──
 
         private List<SimpleUnit> _allies = new List<SimpleUnit>();
@@ -44,6 +48,13 @@ namespace TideboundWar
         private bool _isActive;
         private bool _battleEnded;
         private GameObject _islandInstance;
+
+        // 胜利条件日志防刷屏
+        private bool _loggedEnemiesClearedButProgressIncomplete;
+        private bool _loggedProgressCompleteButEnemiesAlive;
+
+        // 待命状态：敌人全灭但清剿进度未满，友军在岛上漫步等待新怪
+        private bool _isStandby;
 
         /// <summary>战斗是否正在进行</summary>
         public bool IsBattleActive => _isActive;
@@ -76,6 +87,9 @@ namespace TideboundWar
             _warnedSlotMismatch.Clear();
             _battleEnded = false;
             _islandInstance = islandInstance;
+            _loggedEnemiesClearedButProgressIncomplete = false;
+            _loggedProgressCompleteButEnemiesAlive = false;
+            _isStandby = false;
 
             // 订阅事件 + 进入战斗状态 + 清除旧攻击位状态
             foreach (var unit in _allies)
@@ -119,6 +133,77 @@ namespace TideboundWar
             _attackTimers[unit] = AttackInterval;
         }
 
+        /// <summary>
+        /// 战斗进行中追加一名敌人（波次刷怪用）。
+        /// 敌人立即进入战斗状态并加入驱动列表。
+        /// 如果当前处于待命状态，自动恢复战斗。
+        /// </summary>
+        public void AddEnemy(SimpleUnit unit)
+        {
+            if (unit == null || unit.IsDead || unit.State == UnitState.Dead) return;
+            if (_enemies.Contains(unit)) return;
+
+            _enemies.Add(unit);
+            unit.ClearMeleeTarget();
+            unit.OnHit += OnUnitHit;
+            unit.EnterCombat();
+            _attackTimers[unit] = AttackInterval;
+            Debug.Log($"[BattleManager] 新敌人 {unit.gameObject.name} 加入战斗，当前敌人数 {_enemies.Count}");
+
+            // 如果友军在待命，恢复战斗
+            if (_isStandby)
+            {
+                ResumeFromStandby();
+            }
+        }
+
+        // ── 待命/恢复 ──
+
+        /// <summary>
+        /// 敌人全灭但清剿进度未满，友军进入岛上待命/漫步状态。
+        /// 清理 BattleManager 自身对单位的引用，然后让单位自行处理退出战斗和进入漫步。
+        /// </summary>
+        private void EnterStandby()
+        {
+            _isStandby = true;
+            _loggedEnemiesClearedButProgressIncomplete = true;
+            Debug.Log("[BattleManager] 敌人已清空，但清剿进度未满，友军进入待命");
+
+            foreach (var unit in _allies)
+            {
+                if (unit == null || unit.IsDead || unit.State == UnitState.Dead) continue;
+
+                // 清理 BattleManager 自身对该单位的驱动引用
+                _unitsInAttackMode.Remove(unit);
+                _attackTimers.Remove(unit);
+                unit.OnHit -= OnUnitHit;
+
+                // 让单位自行处理：停止战斗、清空目标和攻击位、更新锚点、进入漫步
+                unit.EnterIslandStandby();
+            }
+        }
+
+        /// <summary>
+        /// 待命中有新敌人加入，友军重新进入战斗。
+        /// </summary>
+        private void ResumeFromStandby()
+        {
+            _isStandby = false;
+            _loggedEnemiesClearedButProgressIncomplete = false;
+            Debug.Log("[BattleManager] 新敌人出现，友军从待命恢复战斗");
+
+            foreach (var unit in _allies)
+            {
+                if (unit == null || unit.IsDead || unit.State == UnitState.Dead) continue;
+
+                // 重新进入战斗
+                unit.OnHit -= OnUnitHit;   // 先取消，防止重复订阅
+                unit.OnHit += OnUnitHit;
+                unit.EnterCombat();
+                _attackTimers[unit] = AttackInterval;
+            }
+        }
+
         // ── 主循环 ──
 
         private void Update()
@@ -131,17 +216,56 @@ namespace TideboundWar
             _unitsInAttackMode.RemoveWhere(u => u == null || u.CurrentHP <= 0 || u.IsDead || u.State == UnitState.Dead);
 
             // 检查战斗结束
-            if (_allies.Count == 0 || _enemies.Count == 0)
+            bool alliesAlive = HasAliveUnit(_allies);
+            bool enemiesAlive = HasAliveUnit(_enemies);
+
+            // 友军全灭 → 失败
+            if (!alliesAlive && !_battleEnded)
             {
-                if (!_battleEnded)
-                {
-                    bool alliesWon = _enemies.Count == 0;
-                    EndBattle(alliesWon);
-                }
+                EndBattle(false);
                 return;
             }
 
-            // 驱动所有单位
+            // 敌人全灭
+            if (!enemiesAlive)
+            {
+                // 检查清剿进度是否已满
+                bool clearComplete = ClearProgressMgr != null && ClearProgressMgr.IsClearComplete;
+
+                if (clearComplete)
+                {
+                    // 敌人全灭 + 清剿满 → 胜利
+                    if (!_battleEnded)
+                    {
+                        Debug.Log("[BattleManager] 敌人已清空且清剿进度已满，战斗胜利");
+                        EndBattle(true);
+                    }
+                    return;
+                }
+                else
+                {
+                    // 敌人全灭但清剿未满 → 友军进入待命/漫步
+                    if (!_isStandby)
+                    {
+                        EnterStandby();
+                    }
+                    return;
+                }
+            }
+
+            // 清剿满但还有敌人 → 继续战斗
+            if (ClearProgressMgr != null && ClearProgressMgr.IsClearComplete && enemiesAlive)
+            {
+                if (!_loggedProgressCompleteButEnemiesAlive)
+                {
+                    _loggedProgressCompleteButEnemiesAlive = true;
+                    Debug.Log("[BattleManager] 清剿进度已满，等待清空剩余敌人");
+                }
+            }
+
+            // 驱动所有单位（待命状态下不驱动，友军在漫步）
+            if (_isStandby) return;
+
             DriveUnits(_allies, _enemies);
             DriveUnits(_enemies, _allies);
         }
@@ -407,12 +531,29 @@ namespace TideboundWar
 
             bool hasAliveAllies = HasAliveUnit(_allies);
             bool hasAliveEnemies = HasAliveUnit(_enemies);
-            if (hasAliveAllies && hasAliveEnemies) return;
 
-            bool alliesWon = hasAliveAllies && !hasAliveEnemies;
-            if (alliesWon)
-                Debug.Log("[BattleManager] 检测到最后一个敌人已逻辑死亡，立即结束战斗");
-            EndBattle(alliesWon);
+            // 友军全灭 → 失败
+            if (!hasAliveAllies)
+            {
+                EndBattle(false);
+                return;
+            }
+
+            // 敌人全灭
+            if (!hasAliveEnemies)
+            {
+                bool clearComplete = ClearProgressMgr != null && ClearProgressMgr.IsClearComplete;
+                if (clearComplete)
+                {
+                    Debug.Log("[BattleManager] 检测到最后一个敌人已逻辑死亡且清剿进度已满，立即结束战斗");
+                    EndBattle(true);
+                }
+                else if (!_isStandby)
+                {
+                    // 敌人全灭但清剿未满 → 进入待命
+                    EnterStandby();
+                }
+            }
         }
 
         private bool HasAliveUnit(List<SimpleUnit> units)

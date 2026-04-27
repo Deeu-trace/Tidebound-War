@@ -31,6 +31,8 @@ namespace TideboundWar
 
         // 已生成的敌人列表，用于间距检查
         private readonly List<Transform> _spawnedEnemies = new List<Transform>();
+        // 已生成敌人的累计编号，用于命名
+        private int _nextEnemyIndex;
 
         /// <summary>当前存活的敌人列表（只读，供 BattleManager 等外部查询）</summary>
         public IReadOnlyList<Transform> AliveEnemies => _spawnedEnemies;
@@ -40,31 +42,47 @@ namespace TideboundWar
             SpawnEnemies();
         }
 
-        /// <summary>生成所有敌人（Start 自动调用，也可外部调用）</summary>
+        /// <summary>生成所有敌人（Start 自动调用，使用 Inspector 的 SpawnCount）</summary>
         public void SpawnEnemies()
         {
+            SpawnEnemies(SpawnCount);
+        }
+
+        /// <summary>
+        /// 生成指定数量的敌人，返回新生成的 SimpleUnit 列表。
+        /// 供 BattleClearProgressManager 波次刷怪调用。
+        /// </summary>
+        public List<SimpleUnit> SpawnEnemies(int count)
+        {
+            var spawned = new List<SimpleUnit>();
+
             if (OrcPrefab == null)
             {
                 Debug.LogError("[EnemySpawner] OrcPrefab 未设置！");
-                return;
+                return spawned;
             }
 
             if (EnemyStandArea == null)
             {
                 Debug.LogError("[EnemySpawner] EnemyStandArea 未设置！");
-                return;
+                return spawned;
             }
 
             if (!EnsureEnemyContainer())
-                return;
+                return spawned;
 
-            for (int i = 0; i < SpawnCount; i++)
+            for (int i = 0; i < count; i++)
             {
-                SpawnOneEnemy(i);
+                SimpleUnit unit = SpawnOneEnemy(_nextEnemyIndex);
+                _nextEnemyIndex++;
+                if (unit != null)
+                    spawned.Add(unit);
             }
+
+            return spawned;
         }
 
-        private void SpawnOneEnemy(int index)
+        private SimpleUnit SpawnOneEnemy(int index)
         {
             // ── 在 EnemyStandArea 内采样一个合法站位 ──
             Vector3 anchorPos = SampleValidPosition();
@@ -107,6 +125,8 @@ namespace TideboundWar
             Debug.Log($"[EnemySpawner] SpawnArea 是否属于当前岛屿 = {spawnAreaBelongsToIsland}");
             if (!isChildOfIsland)
                 Debug.LogError("[EnemySpawner] Orc 未挂到当前岛屿实例下，岛屿移动时敌人不会跟随！");
+
+            return unit;
         }
 
         private bool EnsureEnemyContainer()

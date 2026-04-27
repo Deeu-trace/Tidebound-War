@@ -19,6 +19,8 @@ namespace TideboundWar
         [Tooltip("回船控制器（订阅全部回船事件）")] public ReturnToShipController ReturnToShipCtrl;
         [Tooltip("木板动画控制器（停靠/回船时播放木板动画）")] public ShipBoardAnimatorController BoardAnimCtrl;
         [Tooltip("航行进度管理器（岛屿销毁后重置航行）")] public VoyageProgressManager VoyageProgressMgr;
+        [Tooltip("棋盘阶段控制器（切换棋盘显示/隐藏）")] public BoardPhaseController BoardPhaseCtrl;
+        [Tooltip("清剿进度管理器（岛屿生成后注入 EnemySpawner）")] public BattleClearProgressManager ClearProgressMgr;
 
         [Header("移动参数")]
         [Tooltip("停靠移动速度")] public float MoveSpeed = 2f;
@@ -89,6 +91,11 @@ namespace TideboundWar
             Debug.Log($"[IslandEncounter] BeginEncounter: prefab = {islandPrefab.name}");
             _encounterActive = true;
             _leaveSequenceStarted = false;
+
+            // 岛屿开始生成时隐藏棋盘
+            if (BoardPhaseCtrl != null)
+                BoardPhaseCtrl.HideBoard();
+
             SpawnIsland(islandPrefab);
         }
 
@@ -185,6 +192,10 @@ namespace TideboundWar
                     _encounterActive = false;
                     _leaveSequenceStarted = false;
 
+                    // 岛屿销毁后清空清剿进度的 EnemySpawner 引用
+                    if (ClearProgressMgr != null)
+                        ClearProgressMgr.ClearCurrentEnemySpawner();
+
                     Debug.Log($"[IslandEncounter] 当前岛屿已销毁：{islandName}");
 
                     // 双保险：如果 EncounterSequenceManager 没有订阅或不存在，
@@ -227,6 +238,30 @@ namespace TideboundWar
             // 开始移动
             _isMoving = true;
             Debug.Log($"[IslandEncounterController] {islandPrefab.name} 已生成，开始移动");
+
+            // 将当前岛屿实例的 EnemySpawner 注入清剿进度管理器
+            InjectEnemySpawnerToClearProgress();
+        }
+
+        /// <summary>
+        /// 从当前岛屿实例上获取 EnemySpawner，注入 BattleClearProgressManager。
+        /// 必须在 _currentIsland 实例化之后调用。
+        /// </summary>
+        private void InjectEnemySpawnerToClearProgress()
+        {
+            if (ClearProgressMgr == null) return;
+            if (_currentIsland == null) return;
+
+            EnemySpawner spawner = _currentIsland.GetComponentInChildren<EnemySpawner>();
+            if (spawner != null)
+            {
+                ClearProgressMgr.SetCurrentEnemySpawner(spawner);
+            }
+            else
+            {
+                Debug.LogWarning("[IslandEncounter] 当前岛屿实例上没有 EnemySpawner，清剿进度波次刷怪将不可用");
+                ClearProgressMgr.SetCurrentEnemySpawner(null);
+            }
         }
 
         /// <summary>
@@ -298,14 +333,23 @@ namespace TideboundWar
             _leaveSequenceStarted = true;
             Debug.Log("[IslandEncounter] 收到全部回船事件，准备收回木板");
 
+            // 战斗结束，隐藏棋盘
+            if (BoardPhaseCtrl != null)
+                BoardPhaseCtrl.HideBoard();
+
             // ── 先收木板 ──
             RetractBoardThenReturnCamera();
         }
 
-        /// <summary>木板伸出完成回调：开始登陆</summary>
+        /// <summary>木板伸出完成回调：切换战斗棋盘 + 开始登陆</summary>
         private void OnBoardExtended()
         {
             Debug.Log("[IslandEncounterController] 木板伸出完成，开始登陆");
+
+            // 木板伸出完成后显示战斗棋盘
+            if (BoardPhaseCtrl != null)
+                BoardPhaseCtrl.ShowBattleBoard();
+
             NotifyLandingController();
         }
 
@@ -366,6 +410,10 @@ namespace TideboundWar
         /// </summary>
         private void StartIslandExit()
         {
+            // 岛屿开始离开时，切换回航行棋盘
+            if (BoardPhaseCtrl != null)
+                BoardPhaseCtrl.ShowVoyageBoard();
+
             _isExiting = true;
             Debug.Log("[IslandEncounter] 岛屿开始离开，移向 IslandExitPoint");
         }

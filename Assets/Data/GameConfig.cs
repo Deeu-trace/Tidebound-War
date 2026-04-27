@@ -18,21 +18,37 @@ namespace TideboundWar
         [Tooltip("拖拽识别阈值（像素）")] public float DragThreshold = 30f;
         [Tooltip("最小匹配数")] public int MatchMin = 3;
 
-        [Header("方块权重")]
-        [Tooltip("各方块生成权重：剑/金币/木材/石料")] 
+        [Header("航行方块权重")]
+        [Tooltip("航行阶段方块生成权重：剑/金币/木材/石料")] 
         public float[] TileWeights = { 0.30f, 0.25f, 0.25f, 0.20f };
 
-        [Header("方块颜色（Demo用）")]
+        [Header("战斗方块权重")]
+        [Tooltip("战斗阶段方块生成权重：怪物潮/号角/增益01/增益02")]
+        public float[] BattleTileWeights = { 0.30f, 0.25f, 0.25f, 0.20f };
+
+        [Header("航行方块颜色（Demo用）")]
         public Color SwordColor = new Color(0.2f, 0.4f, 0.9f);   // 蓝色
         public Color GoldColor  = new Color(0.9f, 0.8f, 0.1f);   // 黄色
         public Color WoodColor  = new Color(0.2f, 0.8f, 0.3f);   // 绿色
         public Color StoneColor = new Color(0.7f, 0.5f, 0.3f);   // 棕色
 
-        [Header("方块标签（Demo用文字）")]
+        [Header("战斗方块颜色（Demo用）")]
+        public Color MonsterTideColor = new Color(0.6f, 0.2f, 0.8f);  // 紫色
+        public Color HornColor        = new Color(0.9f, 0.5f, 0.1f);  // 橙色
+        public Color Buff01Color      = new Color(0.4f, 0.8f, 0.9f);  // 青色
+        public Color Buff02Color      = new Color(0.9f, 0.4f, 0.7f);  // 粉色
+
+        [Header("航行方块标签（Demo用文字）")]
         public string SwordLabel = "剑";
         public string GoldLabel  = "金";
         public string WoodLabel  = "木";
         public string StoneLabel = "石";
+
+        [Header("战斗方块标签（Demo用文字）")]
+        public string MonsterTideLabel = "潮";
+        public string HornLabel        = "角";
+        public string Buff01Label      = "增";
+        public string Buff02Label      = "护";
 
         [Header("资源倍率")]
         [Tooltip("每个资源方块消除后加多少资源（消3个Gold × 此值 = 加Gold数量）")]
@@ -52,10 +68,14 @@ namespace TideboundWar
         {
             return type switch
             {
-                TileType.Sword => SwordColor,
-                TileType.Gold  => GoldColor,
-                TileType.Wood  => WoodColor,
-                TileType.Stone => StoneColor,
+                TileType.Sword      => SwordColor,
+                TileType.Gold       => GoldColor,
+                TileType.Wood       => WoodColor,
+                TileType.Stone      => StoneColor,
+                TileType.MonsterTide => MonsterTideColor,
+                TileType.Horn       => HornColor,
+                TileType.Buff01     => Buff01Color,
+                TileType.Buff02     => Buff02Color,
                 _ => Color.white
             };
         }
@@ -65,10 +85,14 @@ namespace TideboundWar
         {
             return type switch
             {
-                TileType.Sword => SwordLabel,
-                TileType.Gold  => GoldLabel,
-                TileType.Wood  => WoodLabel,
-                TileType.Stone => StoneLabel,
+                TileType.Sword      => SwordLabel,
+                TileType.Gold       => GoldLabel,
+                TileType.Wood       => WoodLabel,
+                TileType.Stone      => StoneLabel,
+                TileType.MonsterTide => MonsterTideLabel,
+                TileType.Horn       => HornLabel,
+                TileType.Buff01     => Buff01Label,
+                TileType.Buff02     => Buff02Label,
                 _ => "?"
             };
         }

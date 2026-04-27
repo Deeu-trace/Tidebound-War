@@ -86,12 +86,12 @@ namespace TideboundWar
 
         private void OnEnable()
         {
-            GameEvents.OnMatchResolved += OnMatchResolved;
+            GameEvents.OnTileCleared += OnTileCleared;
         }
 
         private void OnDisable()
         {
-            GameEvents.OnMatchResolved -= OnMatchResolved;
+            GameEvents.OnTileCleared -= OnTileCleared;
         }
 
         private void Update()
@@ -115,7 +115,7 @@ namespace TideboundWar
 
         // ── 事件处理 ──
 
-        private void OnMatchResolved(TileType type, int count)
+        private void OnTileCleared(TileType type, int count, List<Vector3> worldPositions)
         {
             // ── Sword：走产兵逻辑 ──
             if (type == TileType.Sword)

@@ -328,6 +328,17 @@ namespace TideboundWar
 
                     isFirstCmdInPhase = false;
                 }
+
+                // ── 本轮消除动画完成后广播 OnTileCleared ──
+                if (phase.ClearInfo != null && phase.ClearInfo.Count > 0)
+                {
+                    var clearInfo = phase.ClearInfo; // 闭包捕获
+                    _currentSequence.AppendCallback(() =>
+                    {
+                        foreach (var info in clearInfo)
+                            GameEvents.TileCleared(info.Type, info.Count, info.WorldPositions);
+                    });
+                }
             }
 
             _currentSequence.OnComplete(() =>
@@ -341,7 +352,7 @@ namespace TideboundWar
                 _boardSystem?.SetProcessing(false);
                 if (_inputController != null)
                     _inputController.IsAnimating = false;
-                GameEvents.BoardAnimationComplete();
+                GameEvents.BoardResolveComplete();
             });
 
             _currentSequence.Play();
