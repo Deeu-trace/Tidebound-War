@@ -375,14 +375,13 @@ namespace TideboundWar
             RetractBoardThenReturnCamera();
         }
 
-        /// <summary>木板伸出完成回调：切换战斗棋盘 + 开始登陆</summary>
+        /// <summary>木板伸出完成回调：开始登陆</summary>
         private void OnBoardExtended()
         {
             Debug.Log("[IslandEncounterController] 木板伸出完成，开始登陆");
 
-            // 木板伸出完成后显示战斗棋盘
-            if (BoardPhaseCtrl != null)
-                BoardPhaseCtrl.ShowBattleBoard();
+            // 注意：战斗棋盘不再在这里显示，改在 LandingController.StartBattle 中显示
+            //（士兵进入 BattleTriggerArea 后才显示战斗棋盘）
 
             NotifyLandingController();
         }

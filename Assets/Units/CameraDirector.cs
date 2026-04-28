@@ -334,16 +334,8 @@ namespace TideboundWar
             }
 
             Vector2 mousePos = Input.mousePosition;
-            Rect rectLocal = CameraInputArea.rect;
             bool result = RectTransformUtility.RectangleContainsScreenPoint(
                 CameraInputArea, mousePos, eventCamera);
-
-            // 调试日志：只在滚轮时输出（调用方已判断 scroll != 0）
-            Debug.Log($"[Camera] 鼠标是否在 CameraInputArea = {result}"
-                + $" | mousePos={mousePos}"
-                + $" | rect={rectLocal}"
-                + $" | canvasMode={canvas.renderMode}"
-                + $" | eventCamera={(eventCamera != null ? eventCamera.name : "null")}");
 
             return result;
         }

@@ -33,6 +33,18 @@ namespace TideboundWar
         [Tooltip("清剿进度管理器（胜利条件：清剿满 + 敌人全灭）")]
         public BattleClearProgressManager ClearProgressMgr;
 
+        [Header("号角系统")]
+        [Tooltip("号角管理器（判断 LastChance：我方全灭时如果有号角可用则等待援军）")]
+        public BattleHornManager HornManager;
+
+        [Header("阶段管理")]
+        [Tooltip("阶段管理器（进入/退出 LastChance 时切换阶段，锁定棋盘输入）")]
+        public PhaseManager PhaseMgr;
+
+        [Header("药水系统")]
+        [Tooltip("战斗药水管理器（攻击/防御药水倍率）")]
+        public BattlePotionManager PotionManager;
+
         // ── 内部状态 ──
 
         private List<SimpleUnit> _allies = new List<SimpleUnit>();
@@ -56,8 +68,18 @@ namespace TideboundWar
         // 待命状态：敌人全灭但清剿进度未满，友军在岛上漫步等待新怪
         private bool _isStandby;
 
+        // LastChance 状态：我方全灭但有号角可用，等待玩家使用号角召唤援军
+        private bool _isLastChance;
+
+        // 正在赶来的援军数量（号角召唤后、到达 LandingPoint 前）
+        // 防止援军在路上时误判失败
+        private int _pendingReinforcements;
+
         /// <summary>战斗是否正在进行</summary>
         public bool IsBattleActive => _isActive;
+
+        /// <summary>是否处于 LastChance 状态（我方全灭但仍有号角可用，等待援军）</summary>
+        public bool IsLastChance => _isLastChance;
 
         /// <summary>战斗结束事件（true = 友军获胜）</summary>
         public event System.Action<bool> OnBattleEnded;
@@ -90,6 +112,8 @@ namespace TideboundWar
             _loggedEnemiesClearedButProgressIncomplete = false;
             _loggedProgressCompleteButEnemiesAlive = false;
             _isStandby = false;
+            _isLastChance = false;
+            _pendingReinforcements = 0;
 
             // 订阅事件 + 进入战斗状态 + 清除旧攻击位状态
             foreach (var unit in _allies)
@@ -131,6 +155,18 @@ namespace TideboundWar
             unit.OnHit += OnUnitHit;
             unit.EnterCombat();
             _attackTimers[unit] = AttackInterval;
+
+            // 援军到达，退出 LastChance 并恢复战斗
+            if (_isLastChance)
+            {
+                _isLastChance = false;
+                if (_pendingReinforcements > 0)
+                    _pendingReinforcements--;
+                // 恢复战斗阶段，解锁棋盘输入
+                if (PhaseMgr != null)
+                    PhaseMgr.SetPhase(GamePhase.Battle);
+                Debug.Log("[BattleManager] 援军到达，退出 LastChance，恢复战斗");
+            }
         }
 
         /// <summary>
@@ -155,6 +191,18 @@ namespace TideboundWar
             {
                 ResumeFromStandby();
             }
+        }
+
+        /// <summary>
+        /// 通知有援军正在赶来（号角召唤时调用）。
+        /// 防止援军在路上时误判失败。
+        /// </summary>
+        /// <param name="count">正在赶来的援军数量</param>
+        public void NotifyReinforcementIncoming(int count)
+        {
+            if (count <= 0) return;
+            _pendingReinforcements += count;
+            Debug.Log($"[BattleManager] {_pendingReinforcements} 个援军正在赶来");
         }
 
         // ── 待命/恢复 ──
@@ -219,11 +267,34 @@ namespace TideboundWar
             bool alliesAlive = HasAliveUnit(_allies);
             bool enemiesAlive = HasAliveUnit(_enemies);
 
-            // 友军全灭 → 失败
+            // 友军全灭 → 检查 LastChance（有号角可用则等待援军）
             if (!alliesAlive && !_battleEnded)
             {
-                EndBattle(false);
-                return;
+                bool hasHornChance = (HornManager != null && HornManager.HornCount > 0);
+                bool hasReinforcementIncoming = _pendingReinforcements > 0;
+
+                if (hasHornChance || hasReinforcementIncoming)
+                {
+                    if (!_isLastChance)
+                    {
+                        _isLastChance = true;
+                        Debug.Log("[BattleManager] 我方全灭，但仍有号角可用，等待援军");
+                        // 进入 LastChance 阶段，锁定棋盘输入
+                        if (PhaseMgr != null)
+                            PhaseMgr.SetPhase(GamePhase.LastChance);
+                    }
+                    // LastChance 状态下不驱动单位（友军全灭，敌人无目标会自动停步）
+                    return;
+                }
+                else
+                {
+                    if (_isLastChance)
+                    {
+                        Debug.Log("[BattleManager] LastChance 结束，无号角且无援军在途，战斗失败");
+                    }
+                    EndBattle(false);
+                    return;
+                }
             }
 
             // 敌人全灭
@@ -512,6 +583,7 @@ namespace TideboundWar
 
         /// <summary>
         /// 命中事件处理：攻击者 OnHit → 只对 MeleeTarget 扣血。
+        /// 应用攻击药水倍率（友军攻击时）和防御药水倍率（友军受伤时）。
         /// MeleeTarget 已死亡则伤害丢失（严格限制攻击位，不允许兜底攻击任意敌人）。
         /// </summary>
         private void OnUnitHit(SimpleUnit attacker, float damage)
@@ -519,7 +591,17 @@ namespace TideboundWar
             SimpleUnit target = attacker.MeleeTarget;
             if (target != null && !target.IsDead && target.CurrentHP > 0 && target.State != UnitState.Dead)
             {
-                target.TakeDamage(damage);
+                float finalDamage = damage;
+
+                // ── 攻击药水倍率：友军攻击时伤害 × 倍率 ──
+                if (attacker.Faction == Faction.Ally && PotionManager != null)
+                    finalDamage *= PotionManager.GetAttackMultiplier();
+
+                // ── 防御药水倍率：友军受伤时伤害 × 倍率 ──
+                if (target.Faction == Faction.Ally && PotionManager != null)
+                    finalDamage *= PotionManager.GetDefenseMultiplier();
+
+                target.TakeDamage(finalDamage);
                 CheckAndEndBattleImmediate();
             }
             // MeleeTarget 已死亡 → 伤害丢失，下一帧会找新目标
@@ -532,9 +614,22 @@ namespace TideboundWar
             bool hasAliveAllies = HasAliveUnit(_allies);
             bool hasAliveEnemies = HasAliveUnit(_enemies);
 
-            // 友军全灭 → 失败
+            // 友军全灭 → 检查 LastChance
             if (!hasAliveAllies)
             {
+                bool hasHornChance = (HornManager != null && HornManager.HornCount > 0);
+                bool hasReinforcementIncoming = _pendingReinforcements > 0;
+
+                if (hasHornChance || hasReinforcementIncoming)
+                {
+                    if (!_isLastChance)
+                    {
+                        _isLastChance = true;
+                        Debug.Log("[BattleManager] 我方全灭，但仍有号角可用，等待援军");
+                    }
+                    return;
+                }
+
                 EndBattle(false);
                 return;
             }

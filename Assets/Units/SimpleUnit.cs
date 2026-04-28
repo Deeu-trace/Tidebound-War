@@ -321,13 +321,13 @@ namespace TideboundWar
                 UpdateHPBar();
 
                 // ── 血条组件诊断 ──
-                if (HPBarFill == null)
-                    Debug.LogError($"[SimpleUnit] {gameObject.name}：HPBarFill 为空！请确认预制体有名为 HPBar_Fill 的子对象且挂了 SpriteRenderer");
-                else if (HPBarFill.sprite == null)
-                    Debug.LogError($"[SimpleUnit] {gameObject.name}：HPBarFill 的 SpriteRenderer 没有 Sprite，血条不会显示！");
+                //if (HPBarFill == null)
+                //    Debug.LogError($"[SimpleUnit] {gameObject.name}：HPBarFill 为空！请确认预制体有名为 HPBar_Fill 的子对象且挂了 SpriteRenderer");
+                //else if (HPBarFill.sprite == null)
+                //    Debug.LogError($"[SimpleUnit] {gameObject.name}：HPBarFill 的 SpriteRenderer 没有 Sprite，血条不会显示！");
 
-                if (HPBarBg == null)
-                    Debug.LogWarning($"[SimpleUnit] {gameObject.name}：HPBarBg 为空（可选），如需背景条请添加 HPBar_Bg 子对象");
+                //if (HPBarBg == null)
+                //    Debug.LogWarning($"[SimpleUnit] {gameObject.name}：HPBarBg 为空（可选），如需背景条请添加 HPBar_Bg 子对象");
             }
         }
 

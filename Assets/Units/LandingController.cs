@@ -33,6 +33,8 @@ namespace TideboundWar
         public UnitSpawner AllySpawner;
         [Tooltip("战斗管理器（开战后驱动 NvN 战斗）")]
         public BattleManager BattleManager;
+        [Tooltip("棋盘阶段控制器（正式开战时显示战斗棋盘）")]
+        public BoardPhaseController BoardPhaseCtrl;
 
         [Header("移动参数")]
         [Tooltip("士兵出发间隔（秒）")] public float StartInterval = 0.2f;
@@ -524,6 +526,13 @@ namespace TideboundWar
             {
                 Debug.LogWarning("[LandingController] BattleManager 未设置，无法开始战斗");
                 return;
+            }
+
+            // ── 士兵进入 BattleTriggerArea，正式开战，显示战斗棋盘 ──
+            if (BoardPhaseCtrl != null)
+            {
+                BoardPhaseCtrl.ShowBattleBoard();
+                Debug.Log("[LandingController] 正式开战，显示战斗棋盘");
             }
 
             // ── 收集友军 ──

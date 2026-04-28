@@ -420,5 +420,90 @@ namespace TideboundWar
             _aliveUnits.Clear();
             _reservedPositions.Clear();
         }
+
+        /// <summary>
+        /// 生成援军（号角召唤）。复用现有产兵逻辑，不受队列限制。
+        ///
+        /// 完整路径（与 Sword 产兵一致）：
+        ///   AllySpawnOrigin 出生 → SpawnArea 站位
+        ///   → OnUnitSpawned 事件 → LandingController 自动安排登陆
+        ///   → BoardingPoint → LandingPoint → BattleManager.AddAlly()
+        ///
+        /// 容量检查：如果采样到的站位与已有单位太近（&lt; MinSpacing/2），视为船上已满。
+        /// </summary>
+        /// <param name="prefab">自定义士兵预制体，传 null 则使用默认 SoldierPrefab</param>
+        /// <returns>true = 生成成功；false = 容量满或参数缺失</returns>
+        public bool SpawnReinforcement(GameObject prefab = null)
+        {
+            GameObject unitPrefab = prefab != null ? prefab : SoldierPrefab;
+
+            if (unitPrefab == null)
+            {
+                Debug.LogError("[UnitSpawner] 士兵预制体未设置！");
+                return false;
+            }
+
+            if (SpawnArea == null)
+            {
+                Debug.LogError("[UnitSpawner] SpawnArea 未设置！");
+                return false;
+            }
+
+            // 清理已销毁的引用 + 已到达站位的预留
+            _aliveUnits.RemoveAll(t => t == null);
+            CleanupReservedPositions();
+
+            // 预分配站位
+            Vector3 anchorPos = SampleValidPosition();
+            anchorPos.y -= PivotOffsetY;
+            anchorPos = ForcePositionInsidePolygon(anchorPos);
+
+            // 容量检查：如果最近距离小于 MinSpacing 的一半，认为船上已满
+            Vector2 anchor2D = new Vector2(anchorPos.x, anchorPos.y);
+            foreach (var existing in _aliveUnits)
+            {
+                if (existing == null) continue;
+                if (Vector2.Distance(anchor2D, existing.position) < MinSpacing * 0.5f)
+                {
+                    Debug.LogWarning("[UnitSpawner] 船上容量已满，无法生成援军");
+                    return false;
+                }
+            }
+
+            // 记录到预留列表
+            _reservedPositions.Add(anchorPos);
+
+            // 在出生原点生成
+            Vector3 spawnPos = AllySpawnOrigin != null ? AllySpawnOrigin.position : anchorPos;
+            GameObject unitObj = Instantiate(unitPrefab, spawnPos, Quaternion.identity);
+            unitObj.name = $"Soldier_Horn_{_aliveUnits.Count}";
+
+            if (AllyContainer != null)
+                unitObj.transform.SetParent(AllyContainer, worldPositionStays: true);
+
+            // 面朝右边
+            Vector3 scale = unitObj.transform.localScale;
+            if (scale.x < 0) scale.x = -scale.x;
+            unitObj.transform.localScale = scale;
+
+            // 通知单位开始入场
+            SimpleUnit unit = unitObj.GetComponent<SimpleUnit>();
+            if (unit != null)
+            {
+                unit.Faction = Faction.Ally;
+                unit.BeginEntering(anchorPos, SpawnArea);
+                unit.OnArrivedAtAnchor += OnUnitArrivedAtAnchor;
+            }
+
+            // 记录到友军列表
+            _aliveUnits.Add(unitObj.transform);
+
+            // 通知外部（LandingController 会自动安排登陆）
+            if (unit != null)
+                OnUnitSpawned?.Invoke(unit);
+
+            Debug.Log("[UnitSpawner] 号角援军已生成");
+            return true;
+        }
     }
 }

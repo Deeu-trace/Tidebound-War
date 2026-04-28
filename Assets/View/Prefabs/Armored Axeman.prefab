@@ -74,13 +74,13 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 799095223
   m_SortingLayer: 5
-  m_SortingOrder: 290
-  m_Sprite: {fileID: -3976621288577506216, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
+  m_SortingOrder: 188
+  m_Sprite: {fileID: -883031274253855672, guid: fdd41352ab0f5444f9f04dafd324b06c, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
-  m_Size: {x: 0.17, y: 0.21}
+  m_Size: {x: 0.2, y: 0.23}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
@@ -96,7 +96,7 @@ Animator:
   m_GameObject: {fileID: 6220066518113037513}
   m_Enabled: 1
   m_Avatar: {fileID: 0}
-  m_Controller: {fileID: 9100000, guid: ea4a6d8899d90b4468673a3408b91b17, type: 2}
+  m_Controller: {fileID: 9100000, guid: 827470c8b2f929842863b9ef506145d7, type: 2}
   m_CullingMode: 0
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -145,7 +145,7 @@ RectTransform:
   m_GameObject: {fileID: 7467931645504131520}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 0.08, z: 1}
+  m_LocalScale: {x: 0.01, y: 0.08, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 8018206725793017369}
@@ -195,9 +195,9 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: -747302039
   m_SortingLayer: 6
-  m_SortingOrder: 291
+  m_SortingOrder: 189
   m_Sprite: {fileID: 10907, guid: 0000000000000000f000000000000000, type: 0}
-  m_Color: {r: 0, g: 1, b: 0, a: 0}
+  m_Color: {r: 1, g: 0, b: 0, a: 0}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 2
@@ -217,7 +217,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -2253911629886400664, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
       propertyPath: m_Name
-      value: Soldier
+      value: Armored Axeman
       objectReference: {fileID: 0}
     - target: {fileID: -2253911629886400664, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
       propertyPath: m_IsActive
@@ -265,11 +265,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7878350319992209165, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -6.352
+      value: -6.03
       objectReference: {fileID: 0}
     - target: {fileID: 7878350319992209165, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -2.903
+      value: -1.88
       objectReference: {fileID: 0}
     - target: {fileID: 7878350319992209165, guid: 5b4e32bd14d2f1649b88644006096c61, type: 3}
       propertyPath: m_LocalPosition.z
@@ -348,13 +348,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1145a07aaa94c0e4baf186e1bc8d0496, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  MaxHP: 24.9
-  CurrentHP: 100
+  MaxHP: 100
+  CurrentHP: 1
   Faction: 0
   UnitAnimator: {fileID: 2010723044188172958}
   BodyRenderer: {fileID: 5448382330416753794}
-  Attack01Damage: 15
-  Attack02Damage: 10
+  Attack01Damage: 20
+  Attack02Damage: 15
   AttackRange: {fileID: 5379007883890601580}
   BodyCollider: {fileID: 8842929372113951788}
   MaxMeleeAttackers: 4
@@ -440,9 +440,9 @@ BoxCollider2D:
   m_Offset: {x: -0.0020950437, y: 0.01770246}
   m_SpriteTilingProperty:
     border: {x: 0, y: 0, z: 0, w: 0}
-    pivot: {x: 0.5294118, y: -1.9047619}
-    oldSize: {x: 0.17, y: 0.21}
-    newSize: {x: 0.17, y: 0.21}
+    pivot: {x: 0.34999996, y: -1.7391304}
+    oldSize: {x: 0.2, y: 0.23}
+    newSize: {x: 0.2, y: 0.23}
     adaptiveTilingThreshold: 0.5
     drawMode: 0
     adaptiveTiling: 0
@@ -482,8 +482,8 @@ CapsuleCollider2D:
   m_IsTrigger: 1
   m_UsedByEffector: 0
   m_UsedByComposite: 0
-  m_Offset: {x: -0.01831079, y: -0.033661485}
-  m_Size: {x: 1.8990302, y: 1.0703062}
+  m_Offset: {x: 0.021338103, y: -0.033661492}
+  m_Size: {x: 1.4430588, y: 1.0703087}
   m_Direction: 1
 --- !u!4 &8018206725793017369 stripped
 Transform:
