@@ -143,6 +143,10 @@ namespace TideboundWar
                     _isMoving = false;
                     Debug.Log("[IslandEncounterController] 岛屿已停靠");
 
+                    // 岛屿停靠完成后，将 CameraBounds 注入镜头导演
+                    // 必须在停靠后注入，否则 bounds 是岛屿初生成位置（画面外）
+                    InjectCameraBoundsToCameraDirector();
+
                     // 通知镜头导演切换到岛屿镜头点
                     NotifyCameraDirector();
 
@@ -265,6 +269,36 @@ namespace TideboundWar
         }
 
         /// <summary>
+        /// 从当前岛屿实例上获取 CameraBounds 的 Collider2D 引用，传给 CameraDirector。
+        /// 岛屿预制体结构：Areas/CameraBounds（需有 Collider2D）。
+        /// 必须在岛屿停靠完成后调用，否则 bounds 是初生成位置。
+        /// 传 Collider2D 引用而非 Bounds 值，CameraDirector 每次 Clamp 时实时读取 bounds，
+        /// 确保 bounds 始终跟随岛屿当前位置。
+        /// </summary>
+        private void InjectCameraBoundsToCameraDirector()
+        {
+            if (CameraDirector == null || _currentIsland == null) return;
+
+            Transform boundsTf = _currentIsland.transform.Find("Areas/CameraBounds");
+            if (boundsTf != null)
+            {
+                Collider2D collider = boundsTf.GetComponent<Collider2D>();
+                if (collider != null)
+                {
+                    CameraDirector.SetCameraBoundsCollider(collider);
+                }
+                else
+                {
+                    Debug.LogWarning("[IslandEncounter] Areas/CameraBounds 上没有 Collider2D，自由摄像头将无边界约束");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[IslandEncounter] 岛屿实例中未找到 Areas/CameraBounds，自由摄像头将无边界约束");
+            }
+        }
+
+        /// <summary>
         /// 从当前岛屿实例中查找 IslandCameraPoint，通知 CameraDirector。
         /// 不用 GameObject.Find，按层级路径从已知实例查找。
         /// </summary>
@@ -283,7 +317,7 @@ namespace TideboundWar
 
             if (islandCamPoint != null)
             {
-                CameraDirector.MoveTo(islandCamPoint);
+                CameraDirector.MoveTo(islandCamPoint, enableFreeCameraOnArrival: true);
             }
             else
             {
